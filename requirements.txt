@@ -1,0 +1,7 @@
+pytesseract
+opencv-python
+pillow
+numpy
+pygetwindow
+pyautogui
+keyboard
