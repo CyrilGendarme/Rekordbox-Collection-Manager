@@ -1,0 +1,55 @@
+"""
+Minimal GUI entry point for the Rekordbox Phrase-to-Memory Cue app.
+"""
+
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+from tkinter import ttk
+
+from core import processing
+
+
+def main():
+
+    root = tk.Tk()
+    root.title("Rekordbox Phrase Cue Setter")
+    root.geometry("500x300")
+
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True)
+
+    # --- Main Tab ---
+    main_frame = tk.Frame(notebook)
+    notebook.add(main_frame, text="Main")
+
+
+
+    def process_specific_track():
+        processing.process_specific_track_gui(root)
+
+    def process_track_per_track():
+        processing.process_track_per_track_gui(root)
+
+    def process_all_tracks():
+        processing.process_all_tracks_gui(root)
+
+
+    btn1 = tk.Button(main_frame, text="Track per Track", command=process_track_per_track)
+    btn1.pack(fill="x", padx=20, pady=10)
+
+    btn2 = tk.Button(main_frame, text="Specific Track", command=process_specific_track)
+    btn2.pack(fill="x", padx=20, pady=10)
+
+    btn3 = tk.Button(main_frame, text="All Tracks", command=process_all_tracks)
+    btn3.pack(fill="x", padx=20, pady=10)
+
+    # --- Configuration Tab ---
+    config_frame = tk.Frame(notebook)
+    notebook.add(config_frame, text="Configuration")
+
+    processing.setup_config_tab(config_frame)
+
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
