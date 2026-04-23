@@ -46,7 +46,7 @@ def main():
     config_frame = tk.Frame(notebook)
     notebook.add(config_frame, text="Configuration")
 
-    processing.setup_config_tab(config_frame)
+    processing.common_actions()
 
     root.mainloop()
 

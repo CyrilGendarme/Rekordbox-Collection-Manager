@@ -35,6 +35,24 @@ def load_tracks():
     )
 
 
+def common_actions():
+    focus_rekordbox_window()
+
+    if detection.is_fx_active():
+        actions.click_top_menu_feature(1)
+    if detection.is_mix_point_link_active():
+        actions.click_top_menu_feature(2)
+    if detection.is_sampler_active():
+        actions.click_top_menu_feature(3)
+    if detection.is_mixer_active():
+        actions.click_top_menu_feature(4)
+    if detection.is_recording_active():
+        actions.click_top_menu_feature(5)
+
+    actions.switch_to_memory_cue_mode()
+    actions.ensure_search_is_cleared()
+
+
 def process_loaded_track():
 
     last_text = None
@@ -125,11 +143,17 @@ def process_loaded_track():
     detect_phrase_and_set_cue_if_needed()
 
     # Advance one beat until on a measure start
-    while True:
+    start_of_mesure_detected = False
+    for _ in range(4):
         actions.advance_one_beat()
         if detection.detect_start_of_mesure():
             print("Start of measure detected.")
+            start_of_mesure_detected = True
             break
+
+    if not start_of_mesure_detected:
+        print("Failed to detect start of measure after advancing one beat 4 times...")
+        return
 
     while True:
         detect_phrase_and_set_cue_if_needed()
@@ -155,8 +179,6 @@ def process_specific_track_gui(root):
         return
 
     focus_rekordbox_window()
-    actions.switch_to_memory_cue_mode()
-
     actions.search_and_load_track(track_name)
     actions.switch_focus()
 
@@ -167,8 +189,6 @@ def process_track_per_track_gui(root):
     filtered_tracks = load_tracks()
 
     focus_rekordbox_window()
-    actions.switch_to_memory_cue_mode()
-    actions.ensure_search_is_cleared()
 
     for track in filtered_tracks:
         actions.search_and_load_track(track.name)
@@ -181,36 +201,10 @@ def process_all_tracks_gui(root):
     filtered_tracks = load_tracks()
 
     focus_rekordbox_window()
-    actions.switch_to_memory_cue_mode()
-    actions.ensure_search_is_cleared()
 
     for track in filtered_tracks:
         actions.search_and_load_track(track.name)
         actions.switch_focus()
         process_loaded_track()
 
-
-def setup_config_tab(config_frame):
-    config_vars = {}
-    config = user_config.load_config()
-
-    def save_config():
-        for key, var in config_vars.items():
-            config[key] = var.get()
-        user_config.save_config(config)
-        messagebox.showinfo(
-            "Config Saved", "Configuration saved successfully.", parent=config_frame
-        )
-
-    row = 0
-    for key, default in user_config.DEFAULTS.items():
-        tk.Label(config_frame, text=key).grid(
-            row=row, column=0, sticky="e", padx=10, pady=5
-        )
-        var = tk.StringVar(value=config.get(key, default))
-        entry = tk.Entry(config_frame, textvariable=var, width=40)
-        entry.grid(row=row, column=1, padx=10, pady=5)
-        config_vars[key] = var
-        row += 1
-    save_btn = tk.Button(config_frame, text="Save Configuration", command=save_config)
-    save_btn.grid(row=row, column=0, columnspan=2, pady=15)
+    messagebox.showwarning("Done", "Memory cues set for all tracks", parent=root)

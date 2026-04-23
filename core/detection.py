@@ -13,6 +13,11 @@ PHRASE_REGION = (962, 113, 60, 12)  # x, y, w, h
 TRACK_WAVEFORM_REGION = (0, 50, 1920, 80)  # x, y, w, h
 MEMORY_CUES_CONTENT_REGION = (50, 365, 540, 90)  # x, y, w, h
 FIST_TRACK_LINE_GENERIC_ZONE = (1250, 530, 5, 12)  # x, y, w, h
+TOP_MENU_FEATURE_TINY_ZONE_1 = (195, 49, 5, 5)  # x, y, w, h
+TOP_MENU_FEATURE_TINY_ZONE_2 = (232, 49, 5, 5)  # x, y, w, h
+TOP_MENU_FEATURE_TINY_ZONE_3 = (269, 49, 5, 5)  # x, y, w, h
+TOP_MENU_FEATURE_TINY_ZONE_4 = (306, 49, 5, 5)  # x, y, w, h
+TOP_MENU_FEATURE_TINY_ZONE_5 = (343, 49, 5, 5)  # x, y, w, h
 
 
 # START_OF_MESURE_REGION = (962, 139, 5, 15)  # x, y, w, h
@@ -23,6 +28,8 @@ FIST_TRACK_LINE_GENERIC_ZONE = (1250, 530, 5, 12)  # x, y, w, h
 WHITE_PIXEL_BRIGHTNESS_THRESHOLD = 220
 RED_MIN_VALUE_FOR_RED_PIXEL = 200
 GREEN_BLUE_MAX_VALUE_FOR_RED_PIXEL = 80
+
+BLUE_TOP_MENU_FEATURE_ACTIVE = [20, 115, 235]
 
 
 def detect_start_of_mesure():
@@ -44,6 +51,7 @@ def detect_start_of_mesure():
         if np.any(red_pixels):
             return True
     return False
+
 
 def detect_phrase():
     """
@@ -88,3 +96,42 @@ def detect_if_memory_cue_exists() -> bool:
         print("Memory cue detected at current position.")
         return True
     return False
+
+
+def _is_median_color_close_to_blue_top_menu_feature_active(img_np: np.ndarray) -> bool:
+    median_color = np.median(img_np, axis=(0, 1)).astype(int)
+    fixed_rgb = np.array(BLUE_TOP_MENU_FEATURE_ACTIVE)
+    color_difference = np.abs(median_color - fixed_rgb)
+
+    rgb_threshold = 5
+    return np.sum(color_difference) < rgb_threshold
+
+
+def is_fx_active() -> bool:
+    screenshot = pyautogui.screenshot(region=TOP_MENU_FEATURE_TINY_ZONE_1)
+    img = np.array(screenshot)
+    return _is_median_color_close_to_blue_top_menu_feature_active(img)
+
+
+def is_mix_point_link_active() -> bool:
+    screenshot = pyautogui.screenshot(region=TOP_MENU_FEATURE_TINY_ZONE_2)
+    img = np.array(screenshot)
+    return _is_median_color_close_to_blue_top_menu_feature_active(img)
+
+
+def is_sampler_active() -> bool:
+    screenshot = pyautogui.screenshot(region=TOP_MENU_FEATURE_TINY_ZONE_3)
+    img = np.array(screenshot)
+    return _is_median_color_close_to_blue_top_menu_feature_active(img)
+
+
+def is_mixer_active() -> bool:
+    screenshot = pyautogui.screenshot(region=TOP_MENU_FEATURE_TINY_ZONE_4)
+    img = np.array(screenshot)
+    return _is_median_color_close_to_blue_top_menu_feature_active(img)
+
+
+def is_recording_active() -> bool:
+    screenshot = pyautogui.screenshot(region=TOP_MENU_FEATURE_TINY_ZONE_5)
+    img = np.array(screenshot)
+    return _is_median_color_close_to_blue_top_menu_feature_active(img)

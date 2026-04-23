@@ -14,6 +14,7 @@ from config import (
     SAVE_CUE_AS_MEMORY_CUE,
     ADVANCE_ONE_BEAT,
     PLAY_PAUSE_TRACK,
+    LAYOUT_2_DECKS_HORIZONTAL,
 )
 from os_utils.rekordbox_process import focus_rekordbox_window
 from data.repositories import RekordboxRepository
@@ -22,9 +23,15 @@ from utils import screenshot_and_show
 PADS_MODE_DROPDOWN = (50, 465)  # x, y
 MEMORY_CUES_DROPDOWN_OPTION = (50, 747)  # x, y
 
+TOP_MENU_FEATURE_1 = (200, 54)  # x, y
+TOP_MENU_FEATURE_2 = (237, 54)  # x, y
+TOP_MENU_FEATURE_3 = (274, 54)  # x, y
+TOP_MENU_FEATURE_4 = (311, 54)  # x, y
+TOP_MENU_FEATURE_5 = (348, 54)  # x, y
+
 
 def send_key_to_rekordbox(
-    key, delay_after: int = 0, hold_time: float = 0, shall_refocus_on_rekordbox=False
+    key, delay_after: float = 0, hold_time: float = 0, shall_refocus_on_rekordbox=False
 ):
     if shall_refocus_on_rekordbox:
         focus_rekordbox_window()
@@ -32,11 +39,16 @@ def send_key_to_rekordbox(
     if hold_time > 0:
         pyautogui.keyDown(key)
         pyautogui.sleep(hold_time)
+
         pyautogui.keyUp(key)
     else:
         pyautogui.press(key)
 
     pyautogui.sleep(delay_after)
+
+    print(
+        f"Sent key '{key}' to Rekordbox with delay_after={delay_after} and hold_time={hold_time}"
+    )
 
 
 def click_on_rekordbox(x, y, delay_after: int = 0.2):
@@ -125,6 +137,13 @@ def advance_one_measure():
     send_key_to_rekordbox(ADVANCE_ONE_MESURE, 0, 0.01)
 
 
+def ensure_2_decks_display():
+    """
+    Use UI automation to ensure that 2 decks are displayed in Rekordbox.
+    """
+    send_key_to_rekordbox(LAYOUT_2_DECKS_HORIZONTAL, 0.5, 0.01)
+
+
 def switch_to_memory_cue_mode():
     """
     Use UI automation to switch Rekordbox deck to Memory Cue mode (last option in dropdown below track).
@@ -139,6 +158,19 @@ def ensure_cue_on_beat():
     """
     Use UI automation to toggle play/pause in Rekordbox.
     """
-    send_key_to_rekordbox(PLAY_PAUSE_TRACK, 0.05)
-    send_key_to_rekordbox(PLAY_PAUSE_TRACK, 0.05)
-    send_key_to_rekordbox(SET_CUE, 0)
+    send_key_to_rekordbox(PLAY_PAUSE_TRACK, 0, 0.01)
+    send_key_to_rekordbox(PLAY_PAUSE_TRACK, 0.5, 0.01)
+    send_key_to_rekordbox(SET_CUE, 0.2, 0.1)
+
+
+def click_top_menu_feature(feature_number: int):
+    if feature_number == 1:
+        click_on_rekordbox(TOP_MENU_FEATURE_1[0], TOP_MENU_FEATURE_1[1])
+    elif feature_number == 2:
+        click_on_rekordbox(TOP_MENU_FEATURE_2[0], TOP_MENU_FEATURE_2[1])
+    elif feature_number == 3:
+        click_on_rekordbox(TOP_MENU_FEATURE_3[0], TOP_MENU_FEATURE_3[1])
+    elif feature_number == 4:
+        click_on_rekordbox(TOP_MENU_FEATURE_4[0], TOP_MENU_FEATURE_4[1])
+    elif feature_number == 5:
+        click_on_rekordbox(TOP_MENU_FEATURE_5[0], TOP_MENU_FEATURE_5[1])
