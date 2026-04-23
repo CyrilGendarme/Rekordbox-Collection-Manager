@@ -7,11 +7,19 @@ import time
 import psutil
 import pygetwindow as gw
 import pyautogui
+from screeninfo import get_monitors
 
 pyautogui.FAILSAFE = False
 import os
 
 from config import REKORDBOX_EXE_PATH
+
+
+def _get_primary_monitor():
+    for m in get_monitors():
+        if m.is_primary:
+            return m
+    return get_monitors()[0]
 
 
 def _find_rekordbox_window(timeout=0):
@@ -51,19 +59,24 @@ def focus_rekordbox_window():
 
 
 def make_rekordbox_fullscreen_on_main_screen():
-    """
-    Finds the Rekordbox window and makes it full screen on the main screen (monitor 0).
-    Handles multi-monitor setups.
-    """
     rekordbox_win = _find_rekordbox_window(timeout=60)
     if not rekordbox_win:
         raise Exception("Rekordbox window not found or not ready.")
+
     try:
-        rekordbox_win.moveTo(0, 0)
-        screen_w, screen_h = pyautogui.size()
-        rekordbox_win.resizeTo(screen_w, screen_h)
+        monitor = _get_primary_monitor()
+
+        # Step 1: restore (VERY important)
+        rekordbox_win.restore()
+        time.sleep(0.5)
+
+        rekordbox_win.moveTo(monitor.x, monitor.y)
+        time.sleep(0.5)
+        rekordbox_win.maximize()
         rekordbox_win.activate()
-        print("Rekordbox window maximized on main screen.")
+
+        print("Rekordbox moved and maximized on main screen.")
+
     except Exception as e:
         raise Exception(f"Error maximizing Rekordbox window: {e}")
 
