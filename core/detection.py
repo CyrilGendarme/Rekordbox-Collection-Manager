@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import pytesseract
 import pyautogui
@@ -8,7 +9,7 @@ pyautogui.FAILSAFE = False
 
 
 START_OF_MESURE_REGION = (962, 129, 5, 15)  # x, y, w, h
-PHRASE_REGION = (962, 109, 60, 15)  # x, y, w, h
+PHRASE_REGION = (962, 113, 60, 12)  # x, y, w, h
 TRACK_WAVEFORM_REGION = (0, 50, 1920, 80)  # x, y, w, h
 MEMORY_CUES_CONTENT_REGION = (50, 365, 540, 90)  # x, y, w, h
 FIST_TRACK_LINE_GENERIC_ZONE = (1250, 530, 5, 12)  # x, y, w, h
@@ -44,7 +45,6 @@ def detect_start_of_mesure():
             return True
     return False
 
-
 def detect_phrase():
     """
     Detect phrase changes by OCR on Rekordbox UI.
@@ -54,16 +54,18 @@ def detect_phrase():
     screenshot = pyautogui.screenshot(region=PHRASE_REGION)
 
     img_np = np.array(screenshot)
-    avg_rgb = img_np.mean(axis=(0, 1))
 
-    text_rgb = pytesseract.image_to_string(
-        img_np,
+    # Convert to help OCR run quicker
+    img_gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
+    _, img_thresh = cv2.threshold(img_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    text_img_thresh = pytesseract.image_to_string(
+        img_thresh,
         lang="eng",
-        config="--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+        config="--psm 7 --oem 1 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
     )
-    text_rgb = text_rgb.strip().upper()
 
-    return avg_rgb, text_rgb
+    return text_img_thresh
 
 
 def capture_track_waveform() -> np.ndarray:
@@ -86,4 +88,3 @@ def detect_if_memory_cue_exists() -> bool:
         print("Memory cue detected at current position.")
         return True
     return False
-
