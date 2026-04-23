@@ -23,8 +23,11 @@ PADS_MODE_DROPDOWN = (50, 465)  # x, y
 MEMORY_CUES_DROPDOWN_OPTION = (50, 747)  # x, y
 
 
-def send_key_to_rekordbox(key, delay_after: int = 0, hold_time: float = 0):
-    focus_rekordbox_window()
+def send_key_to_rekordbox(
+    key, delay_after: int = 0, hold_time: float = 0, shall_refocus_on_rekordbox=False
+):
+    if shall_refocus_on_rekordbox:
+        focus_rekordbox_window()
 
     if hold_time > 0:
         pyautogui.keyDown(key)
@@ -48,8 +51,8 @@ def set_memory_cues():
     Skips tracks with genre 'Sample' or 'Loop Samples'.
     Prints the track name when setting a cue.
     """
-    send_key_to_rekordbox(SET_CUE, 0.1, 0.1)
-    send_key_to_rekordbox(SAVE_CUE_AS_MEMORY_CUE, 0.1, 0.1)
+    send_key_to_rekordbox(SET_CUE, 0.1, 0.05)
+    send_key_to_rekordbox(SAVE_CUE_AS_MEMORY_CUE, 0.1, 0.05)
 
 
 def switch_focus():
@@ -89,9 +92,12 @@ def search_and_load_track(track_name):
         return name
 
     track_name = normalize_track_name(track_name)
-    send_key_to_rekordbox(OPEN_SEARCH_TRACK_DIALOG, 0.2)
+
+    send_key_to_rekordbox(OPEN_SEARCH_TRACK_DIALOG, 0.1, 0.1)
+
     for char in track_name:
         send_key_to_rekordbox(char)
+
     send_key_to_rekordbox(SWITCH_FOCUS_KEY, 1)
     send_key_to_rekordbox(LOAD_TRACK_KEY, delay_after=0.3, hold_time=0.1)
 
@@ -100,7 +106,7 @@ def ensure_search_is_cleared():
     """
     Ensure the search field in Rekordbox is cleared after loading a track.
     """
-    send_key_to_rekordbox(OPEN_SEARCH_TRACK_DIALOG, 0.2)
+    send_key_to_rekordbox(OPEN_SEARCH_TRACK_DIALOG, 0.1, 0.1)
     send_key_to_rekordbox("backspace", 0.2)
     send_key_to_rekordbox(SWITCH_FOCUS_KEY, 0.2)
 
@@ -109,14 +115,14 @@ def advance_one_beat():
     """
     Use UI automation to move the playhead one beat forward in the track.
     """
-    send_key_to_rekordbox(ADVANCE_ONE_BEAT, 0, 0.015)
+    send_key_to_rekordbox(ADVANCE_ONE_BEAT, 0, 0.01)
 
 
 def advance_one_measure():
     """
     Use UI automation to move the playhead one measure forward in the track.
     """
-    send_key_to_rekordbox(ADVANCE_ONE_MESURE, 0, 0.015)
+    send_key_to_rekordbox(ADVANCE_ONE_MESURE, 0, 0.01)
 
 
 def switch_to_memory_cue_mode():
@@ -124,7 +130,9 @@ def switch_to_memory_cue_mode():
     Use UI automation to switch Rekordbox deck to Memory Cue mode (last option in dropdown below track).
     """
     click_on_rekordbox(PADS_MODE_DROPDOWN[0], PADS_MODE_DROPDOWN[1], delay_after=0.2)
-    click_on_rekordbox(MEMORY_CUES_DROPDOWN_OPTION[0], MEMORY_CUES_DROPDOWN_OPTION[1])
+    click_on_rekordbox(
+        MEMORY_CUES_DROPDOWN_OPTION[0], MEMORY_CUES_DROPDOWN_OPTION[1], delay_after=0.2
+    )
 
 
 def ensure_cue_on_beat():

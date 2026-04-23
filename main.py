@@ -14,7 +14,7 @@ def close_app():
     os._exit(0)
 
 
-def listen_for_ctrl_z():
+def listen_for_ctrl_c():
     keyboard.add_hotkey("ctrl+c", close_app)
     keyboard.wait()  # Keep the thread alive to listen for hotkeys
 
@@ -22,7 +22,7 @@ def listen_for_ctrl_z():
 if __name__ == "__main__":
 
     # Start global hotkey listener in a background thread
-    threading.Thread(target=listen_for_ctrl_z, daemon=True).start()
+    threading.Thread(target=listen_for_ctrl_c, daemon=True).start()
 
     if not rekordbox_process.is_rekordbox_running():
         rekordbox_process.launch_rekordbox()

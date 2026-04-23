@@ -4,12 +4,11 @@ from tkinter import messagebox, simpledialog
 from core import actions, user_config, detection
 from data.repositories import RekordboxRepository
 import numpy as np
-import os
 import re
 import string
-import time
 
 from config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
+from os_utils.rekordbox_process import focus_rekordbox_window
 
 
 def load_tracks():
@@ -17,7 +16,7 @@ def load_tracks():
         custom_path=Path(REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH)
     )
     tracks = repo.load_all_tracks()
-    tracks.reverse() # TODO : to be removed, For dev purposes
+    tracks.reverse()  # TODO : to be removed, For dev purposes
     return list(
         filter(
             lambda track: (
@@ -58,24 +57,24 @@ def process_loaded_track():
             f"Checking if cue should be set for text '{text}' with last_text '{last_text}'"
         )
 
-        if text == "INTRO" and last_text != "INTRO":
+        if text.startswith("INTRO") and last_text != "INTRO":
             return True
 
-        if text == "UP" and last_text != "UP":
+        if text.startswith("UP") and last_text != "UP":
             return True
 
-        if text == "CHORUS" and last_text != "CHORUS":
+        if text.startswith("CHORUS") and last_text != "CHORUS":
             return True
 
         if (
-            text == "VERSE"
+            text.startswith("VERSE")
             and last_text != "VERSE"
             and last_text != "CHORUS"
             and last_text != "UP"
         ):
             return True
 
-        if text == "BRIDGE" and last_text != "BRIDGE" and last_text != "UP":
+        if text.startswith("BRIDGE") and last_text != "BRIDGE" and last_text != "UP":
             return True
 
         return False
@@ -91,20 +90,31 @@ def process_loaded_track():
 
     def detect_phrase_and_set_cue_if_needed():
         nonlocal last_text
-        (_, text_rgb) = detection.detect_phrase()
-        trimmed_text = "".join(
-            c for c in text_rgb if not c.isdigit() and c not in string.punctuation
-        ).strip()
-        print(f"Detected last_text: '{text_rgb} (trimmed: {trimmed_text})")
 
-        if any(
-            re.search(pattern, trimmed_text, re.IGNORECASE)
-            for pattern in possible_texts
-        ):
-            if has_to_set_cue(trimmed_text, last_text):
-                print(f"----- Setting memory cue -----")
-                actions.set_memory_cues()
-            last_text = trimmed_text
+        for _ in range(4):
+            raw_text = detection.detect_phrase()
+
+            trimmed_text = "".join(
+                c for c in raw_text if not c.isdigit() and c not in string.punctuation
+            ).strip()
+
+            print(f"Detected text: '{raw_text}' (trimmed: '{trimmed_text}')")
+
+            if any(
+                re.search(pattern, trimmed_text, re.IGNORECASE)
+                for pattern in possible_texts
+            ):
+
+                if has_to_set_cue(trimmed_text, last_text):
+                    print("----- Setting memory cue -----")
+                    actions.set_memory_cues()
+
+                last_text = trimmed_text
+                return
+
+            # Shall just be noise
+            if len(trimmed_text) <= 2:
+                return
 
     if detection.detect_if_memory_cue_exists():
         print(f"Memory cue already exists for the loaded track. Skipping.")
@@ -115,7 +125,7 @@ def process_loaded_track():
     detect_phrase_and_set_cue_if_needed()
 
     # Advance one beat until on a measure start
-    while True: 
+    while True:
         actions.advance_one_beat()
         if detection.detect_start_of_mesure():
             print("Start of measure detected.")
@@ -144,6 +154,7 @@ def process_specific_track_gui(root):
         messagebox.showwarning("Input required", "Track name is required.", parent=root)
         return
 
+    focus_rekordbox_window()
     actions.switch_to_memory_cue_mode()
 
     actions.search_and_load_track(track_name)
@@ -155,8 +166,9 @@ def process_specific_track_gui(root):
 def process_track_per_track_gui(root):
     filtered_tracks = load_tracks()
 
-    actions.ensure_search_is_cleared()
+    focus_rekordbox_window()
     actions.switch_to_memory_cue_mode()
+    actions.ensure_search_is_cleared()
 
     for track in filtered_tracks:
         actions.search_and_load_track(track.name)
@@ -168,23 +180,14 @@ def process_track_per_track_gui(root):
 def process_all_tracks_gui(root):
     filtered_tracks = load_tracks()
 
-    actions.ensure_search_is_cleared()
+    focus_rekordbox_window()
     actions.switch_to_memory_cue_mode()
-    time.sleep(2)
-
-    print(f"Total tracks to process: {len(filtered_tracks)}")
+    actions.ensure_search_is_cleared()
 
     for track in filtered_tracks:
-        print(f"--- Processing track: {track.name}")
         actions.search_and_load_track(track.name)
-        time.sleep(0.5)
         actions.switch_focus()
-        time.sleep(0.2)
         process_loaded_track()
-
-    messagebox.showinfo(
-        "Done", f"Memory cues set for {len(filtered_tracks)} tracks.", parent=root
-    )
 
 
 def setup_config_tab(config_frame):
