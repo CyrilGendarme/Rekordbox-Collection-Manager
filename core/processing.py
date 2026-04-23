@@ -7,10 +7,9 @@ import numpy as np
 import os
 import re
 import string
+import time
 
 from config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
-
-0
 
 
 def load_tracks():
@@ -112,6 +111,7 @@ def process_loaded_track():
         return
 
     # Once at start for intro
+    actions.ensure_cue_on_beat()
     detect_phrase_and_set_cue_if_needed()
 
     # Advance one beat until on a measure start
@@ -170,11 +170,21 @@ def process_all_tracks_gui(root):
 
     actions.ensure_search_is_cleared()
     actions.switch_to_memory_cue_mode()
+    time.sleep(2)
+
+    print(f"Total tracks to process: {len(filtered_tracks)}")
 
     for track in filtered_tracks:
+        print(f"--- Processing track: {track.name}")
         actions.search_and_load_track(track.name)
+        time.sleep(0.5)
         actions.switch_focus()
+        time.sleep(0.2)
         process_loaded_track()
+
+    messagebox.showinfo(
+        "Done", f"Memory cues set for {len(filtered_tracks)} tracks.", parent=root
+    )
 
 
 def setup_config_tab(config_frame):

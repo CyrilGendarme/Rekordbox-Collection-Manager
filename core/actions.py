@@ -13,6 +13,7 @@ from config import (
     SET_CUE,
     SAVE_CUE_AS_MEMORY_CUE,
     ADVANCE_ONE_BEAT,
+    PLAY_PAUSE_TRACK,
 )
 from os_utils.rekordbox_process import focus_rekordbox_window
 from data.repositories import RekordboxRepository
@@ -124,3 +125,12 @@ def switch_to_memory_cue_mode():
     """
     click_on_rekordbox(PADS_MODE_DROPDOWN[0], PADS_MODE_DROPDOWN[1], delay_after=0.2)
     click_on_rekordbox(MEMORY_CUES_DROPDOWN_OPTION[0], MEMORY_CUES_DROPDOWN_OPTION[1])
+
+
+def ensure_cue_on_beat():
+    """
+    Use UI automation to toggle play/pause in Rekordbox.
+    """
+    send_key_to_rekordbox(PLAY_PAUSE_TRACK, 0.05)
+    send_key_to_rekordbox(PLAY_PAUSE_TRACK, 0.05)
+    send_key_to_rekordbox(SET_CUE, 0)

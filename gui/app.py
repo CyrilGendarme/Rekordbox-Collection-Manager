@@ -22,8 +22,6 @@ def main():
     main_frame = tk.Frame(notebook)
     notebook.add(main_frame, text="Main")
 
-
-
     def process_specific_track():
         processing.process_specific_track_gui(root)
 
@@ -33,8 +31,9 @@ def main():
     def process_all_tracks():
         processing.process_all_tracks_gui(root)
 
-
-    btn1 = tk.Button(main_frame, text="Track per Track", command=process_track_per_track)
+    btn1 = tk.Button(
+        main_frame, text="Track per Track", command=process_track_per_track
+    )
     btn1.pack(fill="x", padx=20, pady=10)
 
     btn2 = tk.Button(main_frame, text="Specific Track", command=process_specific_track)
@@ -50,6 +49,7 @@ def main():
     processing.setup_config_tab(config_frame)
 
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()

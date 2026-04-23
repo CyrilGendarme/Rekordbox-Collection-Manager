@@ -1,6 +1,6 @@
 import pyautogui
 pyautogui.FAILSAFE = False
-from PIL import ImageTk, Image
+from PIL import ImageTk
 import tkinter as tk
 
 def screenshot_and_show(region=None, title="Screenshot Preview"):
