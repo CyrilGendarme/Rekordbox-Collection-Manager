@@ -73,7 +73,7 @@ def detect_phrase():
         config="--psm 7 --oem 1 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
     )
 
-    return text_img_thresh
+    return img_np, text_img_thresh
 
 
 def capture_track_waveform() -> np.ndarray:

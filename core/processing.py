@@ -57,6 +57,7 @@ def process_loaded_track():
 
     last_text = None
     last_track_waveform = None
+    last_img_np_with_phrase_change = None
 
     possible_texts = (
         "INTRO",
@@ -70,7 +71,7 @@ def process_loaded_track():
         "DOWN",
     )
 
-    def has_to_set_cue(text, last_text):
+    def _has_to_set_cue(text, last_text):
         print(
             f"Checking if cue should be set for text '{text}' with last_text '{last_text}'"
         )
@@ -97,20 +98,36 @@ def process_loaded_track():
 
         return False
 
-    def are_img_np_same(img1_np, img2_np, rgb_threshold=0.1, pixel_threshold=0.1):
+    def _get_imgs_np_rgb_delta(img_np_1, img_np_2) -> float:
+        avg1 = img_np_1.mean(axis=(0, 1))
+        avg2 = img_np_2.mean(axis=(0, 1))
+        temp = np.abs(avg1 - avg2).sum()
+
+        print(f"detla rgb: {temp}")
+
+        return temp
+
+    def _are_img_np_same(img1_np, img2_np, rgb_threshold=0.1, pixel_threshold=0.1):
         # Compare average RGB
-        avg1 = img1_np.mean(axis=(0, 1))
-        avg2 = img2_np.mean(axis=(0, 1))
-        rgb_delta = np.abs(avg1 - avg2).sum()
+        rgb_delta = _get_imgs_np_rgb_delta(img1_np, img2_np)
         # Compare pixel-wise difference
         pixel_delta = np.abs(img1_np.astype(np.int16) - img2_np.astype(np.int16)).mean()
         return rgb_delta < rgb_threshold and pixel_delta < pixel_threshold
 
-    def detect_phrase_and_set_cue_if_needed():
-        nonlocal last_text
+    def _detect_phrase_and_set_cue_if_needed():
+        nonlocal last_text, last_img_np_with_phrase_change
 
         for _ in range(4):
-            raw_text = detection.detect_phrase()
+            img_np, raw_text = detection.detect_phrase()
+
+            if (
+                last_img_np_with_phrase_change is not None
+                and _get_imgs_np_rgb_delta(img_np, last_img_np_with_phrase_change) < 10
+            ):
+                print("no phrase change detected, skipping OCR")
+                return
+
+            last_img_np_with_phrase_change = img_np
 
             trimmed_text = "".join(
                 c for c in raw_text if not c.isdigit() and c not in string.punctuation
@@ -123,7 +140,7 @@ def process_loaded_track():
                 for pattern in possible_texts
             ):
 
-                if has_to_set_cue(trimmed_text, last_text):
+                if _has_to_set_cue(trimmed_text, last_text):
                     print("----- Setting memory cue -----")
                     actions.set_memory_cues()
 
@@ -140,11 +157,11 @@ def process_loaded_track():
 
     # Once at start for intro
     actions.ensure_cue_on_beat()
-    detect_phrase_and_set_cue_if_needed()
+    _detect_phrase_and_set_cue_if_needed()
 
     # Advance one beat until on a measure start
     start_of_mesure_detected = False
-    for _ in range(4):
+    for _ in range(10):
         actions.advance_one_beat()
         if detection.detect_start_of_mesure():
             print("Start of measure detected.")
@@ -156,12 +173,12 @@ def process_loaded_track():
         return
 
     while True:
-        detect_phrase_and_set_cue_if_needed()
+        _detect_phrase_and_set_cue_if_needed()
 
         actions.advance_one_measure()
         track_waveform = detection.capture_track_waveform()
 
-        if last_track_waveform is not None and are_img_np_same(
+        if last_track_waveform is not None and _are_img_np_same(
             track_waveform, last_track_waveform
         ):
             print("End of track.")

@@ -28,8 +28,6 @@ TOP_MENU_FEATURE_2 = (237, 54)  # x, y
 TOP_MENU_FEATURE_3 = (274, 54)  # x, y
 TOP_MENU_FEATURE_4 = (311, 54)  # x, y
 TOP_MENU_FEATURE_5 = (348, 54)  # x, y
-
-
 def send_key_to_rekordbox(
     key, delay_after: float = 0, hold_time: float = 0, shall_refocus_on_rekordbox=False
 ):
@@ -45,10 +43,6 @@ def send_key_to_rekordbox(
         pyautogui.press(key)
 
     pyautogui.sleep(delay_after)
-
-    print(
-        f"Sent key '{key}' to Rekordbox with delay_after={delay_after} and hold_time={hold_time}"
-    )
 
 
 def click_on_rekordbox(x, y, delay_after: int = 0.2):
@@ -127,14 +121,14 @@ def advance_one_beat():
     """
     Use UI automation to move the playhead one beat forward in the track.
     """
-    send_key_to_rekordbox(ADVANCE_ONE_BEAT, 0, 0.01)
+    send_key_to_rekordbox(ADVANCE_ONE_BEAT, 0.01, 0.01)
 
 
 def advance_one_measure():
     """
     Use UI automation to move the playhead one measure forward in the track.
     """
-    send_key_to_rekordbox(ADVANCE_ONE_MESURE, 0, 0.01)
+    send_key_to_rekordbox(ADVANCE_ONE_MESURE, 0.01, 0.01)
 
 
 def ensure_2_decks_display():
