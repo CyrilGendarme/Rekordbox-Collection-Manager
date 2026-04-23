@@ -7,6 +7,8 @@ import time
 import psutil
 import pygetwindow as gw
 import pyautogui
+import win32gui
+import win32con
 from screeninfo import get_monitors
 
 pyautogui.FAILSAFE = False
@@ -53,7 +55,10 @@ def focus_rekordbox_window():
     win = _find_rekordbox_window()
     if win:
         try:
-            win.activate()
+            hwnd = win._hWnd
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+            win32gui.BringWindowToTop(hwnd)
+            win32gui.SetForegroundWindow(hwnd)
         except Exception as e:
             raise Exception(f"Error focusing Rekordbox window: {e}")
 
@@ -73,7 +78,10 @@ def make_rekordbox_fullscreen_on_main_screen():
         rekordbox_win.moveTo(monitor.x, monitor.y)
         time.sleep(0.5)
         rekordbox_win.maximize()
-        rekordbox_win.activate()
+        hwnd = rekordbox_win._hWnd
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        win32gui.BringWindowToTop(hwnd)
+        win32gui.SetForegroundWindow(hwnd)
 
         print("Rekordbox moved and maximized on main screen.")
 
