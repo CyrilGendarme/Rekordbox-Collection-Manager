@@ -38,6 +38,8 @@ def load_tracks():
 def common_actions():
     focus_rekordbox_window()
 
+    actions.ensure_2_decks_display()
+
     if detection.is_fx_active():
         actions.click_top_menu_feature(1)
     if detection.is_mix_point_link_active():
@@ -72,10 +74,6 @@ def process_loaded_track():
     )
 
     def _has_to_set_cue(text, last_text):
-        print(
-            f"Checking if cue should be set for text '{text}' with last_text '{last_text}'"
-        )
-
         if text.startswith("INTRO") and last_text != "INTRO":
             return True
 
@@ -101,11 +99,7 @@ def process_loaded_track():
     def _get_imgs_np_rgb_delta(img_np_1, img_np_2) -> float:
         avg1 = img_np_1.mean(axis=(0, 1))
         avg2 = img_np_2.mean(axis=(0, 1))
-        temp = np.abs(avg1 - avg2).sum()
-
-        print(f"detla rgb: {temp}")
-
-        return temp
+        return np.abs(avg1 - avg2).sum()
 
     def _are_img_np_same(img1_np, img2_np, rgb_threshold=0.1, pixel_threshold=0.1):
         # Compare average RGB
@@ -124,8 +118,7 @@ def process_loaded_track():
                 last_img_np_with_phrase_change is not None
                 and _get_imgs_np_rgb_delta(img_np, last_img_np_with_phrase_change) < 10
             ):
-                print("no phrase change detected, skipping OCR")
-                return
+                return False
 
             last_img_np_with_phrase_change = img_np
 
@@ -133,38 +126,37 @@ def process_loaded_track():
                 c for c in raw_text if not c.isdigit() and c not in string.punctuation
             ).strip()
 
-            print(f"Detected text: '{raw_text}' (trimmed: '{trimmed_text}')")
-
             if any(
                 re.search(pattern, trimmed_text, re.IGNORECASE)
                 for pattern in possible_texts
             ):
-
                 if _has_to_set_cue(trimmed_text, last_text):
-                    print("----- Setting memory cue -----")
                     actions.set_memory_cues()
 
                 last_text = trimmed_text
-                return
+                return True
 
             # Shall just be noise
             if len(trimmed_text) <= 2:
-                return
+                return False
+
+        return False
 
     if detection.detect_if_memory_cue_exists():
         print(f"Memory cue already exists for the loaded track. Skipping.")
         return
 
+    was_on_phrase_start = _detect_phrase_and_set_cue_if_needed()
+
     # Once at start for intro
-    actions.ensure_cue_on_beat()
-    _detect_phrase_and_set_cue_if_needed()
+    if not was_on_phrase_start:
+        actions.ensure_cue_on_beat()
 
     # Advance one beat until on a measure start
     start_of_mesure_detected = False
     for _ in range(10):
         actions.advance_one_beat()
         if detection.detect_start_of_mesure():
-            print("Start of measure detected.")
             start_of_mesure_detected = True
             break
 
@@ -219,7 +211,14 @@ def process_all_tracks_gui(root):
 
     focus_rekordbox_window()
 
+    import random
+
+    random.shuffle(filtered_tracks)
+
     for track in filtered_tracks:
+
+        print(f"Processing track: {track.name}")
+
         actions.search_and_load_track(track.name)
         actions.switch_focus()
         process_loaded_track()
