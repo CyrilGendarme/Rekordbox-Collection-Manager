@@ -15,6 +15,8 @@ from config import (
     ADVANCE_ONE_BEAT,
     PLAY_PAUSE_TRACK,
     LAYOUT_2_DECKS_HORIZONTAL,
+    NEXT_TRACK_IN_COLLECTION_KEY,
+    PREVIOUS_TRACK_IN_COLLECTION_KEY,
 )
 from os_utils.rekordbox_process import focus_rekordbox_window
 from data.repositories import RekordboxRepository
@@ -28,6 +30,8 @@ TOP_MENU_FEATURE_2 = (237, 54)  # x, y
 TOP_MENU_FEATURE_3 = (274, 54)  # x, y
 TOP_MENU_FEATURE_4 = (311, 54)  # x, y
 TOP_MENU_FEATURE_5 = (348, 54)  # x, y
+
+
 def send_key_to_rekordbox(
     key, delay_after: float = 0, hold_time: float = 0, shall_refocus_on_rekordbox=False
 ):
@@ -168,3 +172,19 @@ def click_top_menu_feature(feature_number: int):
         click_on_rekordbox(TOP_MENU_FEATURE_4[0], TOP_MENU_FEATURE_4[1])
     elif feature_number == 5:
         click_on_rekordbox(TOP_MENU_FEATURE_5[0], TOP_MENU_FEATURE_5[1])
+
+
+def next_track_in_collection():
+    """
+    Use UI automation to load the next track in Rekordbox's collection.
+    """
+    send_key_to_rekordbox(NEXT_TRACK_IN_COLLECTION_KEY, 0, 0.01)
+    send_key_to_rekordbox(LOAD_TRACK_KEY, 0.5, 0.01)
+
+
+def go_to_top_of_collection():
+    """
+    Use UI automation to go to the top of the track collection in Rekordbox.
+    """
+    for _ in range(10):
+        send_key_to_rekordbox(PREVIOUS_TRACK_IN_COLLECTION_KEY, 0, 0.01)

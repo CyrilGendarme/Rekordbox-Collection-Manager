@@ -8,6 +8,8 @@ DEFAULTS = {
     "MEMORY_CUE_KEY": "m",
     "SWITCH_FOCUS_KEY": "tab",
     "LOAD_TRACK_KEY": "n",
+    "NEXT_TRACK_IN_COLLECTION_KEY": "down",
+    "PREVIOUS_TRACK_IN_COLLECTION_KEY": "up",
     "SET_CUE": "-",
     "SAVE_CUE_AS_MEMORY_CUE": "f1",
     "ADVANCE_ONE_MESURE": "f2",

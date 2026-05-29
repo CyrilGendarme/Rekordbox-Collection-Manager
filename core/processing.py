@@ -220,7 +220,14 @@ def process_all_tracks_gui(root):
         print(f"Processing track: {track.name}")
 
         actions.search_and_load_track(track.name)
-        actions.switch_focus()
-        process_loaded_track()
+        actions.go_to_top_of_collection()
+
+        for _ in range(5):
+            actions.switch_focus()
+            process_loaded_track()
+            actions.switch_focus()
+            print("----- will now load next track in collection -----")
+            actions.next_track_in_collection()
+            print("----- has loaded next track -----")
 
     messagebox.showwarning("Done", "Memory cues set for all tracks", parent=root)
