@@ -9,8 +9,7 @@ SAVE_CUE_AS_MEMORY_CUE= "f1"
 ADVANCE_ONE_MESURE= "f2"
 ADVANCE_ONE_BEAT= "f3"
 OPEN_SEARCH_TRACK_DIALOG= "*"
-PLAY_PAUSE_TRACK= "M"²
+PLAY_PAUSE_TRACK = "M"
 LAYOUT_2_DECKS_HORIZONTAL= ")"
 REKORDBOX_EXE_PATH= r"C:\Program Files\rekordbox\rekordbox 7.2.11\rekordbox.exe"
 REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH= r"C:/Users/User/Desktop/musique/misc/rekordbox.xml"
-
