@@ -7,7 +7,7 @@ import numpy as np
 import re
 import string
 
-from config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
+from core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 from os_utils.rekordbox_process import focus_rekordbox_window
 
 

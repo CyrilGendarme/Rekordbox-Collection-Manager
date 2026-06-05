@@ -5,7 +5,7 @@ import pyautogui
 pyautogui.FAILSAFE = False
 import re
 import unicodedata
-from config import (
+from core.user_config import (
     LOAD_TRACK_KEY,
     SWITCH_FOCUS_KEY,
     OPEN_SEARCH_TRACK_DIALOG,
