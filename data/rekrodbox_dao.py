@@ -234,8 +234,8 @@ class RekordboxDAO:
         self.db.commit()
         return content
 
-    def get_all_tracks(self) -> list[DjmdContent]:
-        """Return all tracks in the Rekordbox collection."""
+    def get_tracks(self, is_valid: Optional[callable] = None) -> list[DjmdContent]:
+        """Return tracks in the Rekordbox collection matching the is_valid condition."""
 
         result = self.db.get_content()
 
@@ -246,6 +246,9 @@ class RekordboxDAO:
             for content in contents
             if content is not None and getattr(content, "ID", None) is not None
         ]
+
+        if is_valid is not None:
+            tracks = list(filter(is_valid, tracks))
 
         # Optional: sort by Title for stable UI / exports
         tracks.sort(key=lambda t: (getattr(t, "Title", "") or "").lower())

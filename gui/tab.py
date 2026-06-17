@@ -49,6 +49,15 @@ def build_main_tab(notebook: ttk.Notebook, root: tk.Tk):
         command=processing.remove_memory_cues_if_less_than_two,
     ).pack(fill="x", padx=20, pady=10)
 
+    ttk.Button(
+        main_frame,
+        text="Remove '1.1 bars' cues",
+        command=processing.remove_1_1_bars_cues_from_all_tracks,
+    ).pack(fill="x", padx=20, pady=10)
+
+
+# -----------------------------
+
 
 # -----------------------------
 # CONFIG TAB

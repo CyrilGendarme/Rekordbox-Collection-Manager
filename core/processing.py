@@ -10,39 +10,7 @@ from pyrekordbox.db6.database import DjmdContent
 from core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 from os_utils.rekordbox_process import focus_rekordbox_window
 
-
-def load_tracks(
-    track_without_memory_cues: bool = True,
-    tracks_with_less_than_three_memory_cues: bool = False,
-):
-    dao = RekordboxDAO()
-
-    tracks = dao.get_all_tracks()
-
-    def is_valid(track: DjmdContent):
-        if track.GenreName in {
-            # if track.Genre.Name in {
-            # if track.Genre.Name in {
-            "Loop Samples",
-            "Sample",
-            "Religious",
-            "Traditional",
-        }:
-            return False
-
-        # only apply this when requested
-        if track_without_memory_cues:
-            if any(c.Kind == 0 for c in getattr(track, "Cues", [])):
-                return False
-
-        if tracks_with_less_than_three_memory_cues:
-            cues = [c for c in getattr(track, "Cues", []) if c.Kind == 0]
-            if len(cues) > 3 or len(cues) == 0:
-                return False
-
-        return True
-
-    return list(filter(is_valid, tracks))
+dao = RekordboxDAO()
 
 
 def common_actions():
@@ -204,8 +172,26 @@ def process_specific_track_gui(root):
     process_loaded_track()
 
 
+def is_valid_tracks_without_memory_cues(track: DjmdContent):
+    if track.GenreName in {
+        # if track.Genre.Name in {
+        # if track.Genre.Name in {
+        "Loop Samples",
+        "Sample",
+        "Religious",
+        "Traditional",
+    }:
+        return False
+
+    # only apply this when requested
+    if any(c.Kind == 0 for c in getattr(track, "Cues", [])):
+        return False
+
+    return True
+
+
 def process_track_per_track_gui(root):
-    filtered_tracks = load_tracks()
+    filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
     focus_rekordbox_window()
 
@@ -217,7 +203,7 @@ def process_track_per_track_gui(root):
 
 
 def process_all_tracks_gui(root):
-    filtered_tracks = load_tracks()
+    filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
     focus_rekordbox_window()
 
@@ -245,26 +231,60 @@ def process_all_tracks_gui(root):
 
 def remove_memory_cues_if_less_than_two():
 
-    dao = RekordboxDAO()
-    tracks = load_tracks(False, True)
+    def is_valid(track: DjmdContent):
+        cues = [c for c in getattr(track, "Cues", []) if c.Kind == 0]
+        if len(cues) > 3 or len(cues) == 0:
+            return False
+
+        return True
+
+    tracks = dao.get_tracks(is_valid=is_valid)
 
     for track in tracks:
         """Remove all memory cues from a track, leaving hot cues intact."""
-        content = dao._get_track_by_id(track.ID)
-        if content is None:
-            raise ValueError(f"Track not found for ID: {track.ID}")
 
-        original_cues = getattr(content, "Cues", [])
+        original_cues = getattr(track, "Cues", [])
         if not original_cues:
-            return content
+            continue
 
         remaining_cues = [cue for cue in original_cues if getattr(cue, "Kind", 0) != 0]
         to_be_removed = [cue for cue in original_cues if getattr(cue, "Kind", 0) == 0]
 
-        if hasattr(content, "Cues"):
-            content.Cues = remaining_cues
+        track.Cues = remaining_cues
 
         for cue in to_be_removed:
             dao.db.delete(cue)
 
-        dao.db.commit()
+    dao.db.commit()
+
+
+def remove_1_1_bars_cues_from_all_tracks():
+
+    def is_valid(track: DjmdContent):
+        if any(
+            getattr(c, "Comment", "") == "1.1Bars" for c in getattr(track, "Cues", [])
+        ):
+            return True
+        return False
+
+    tracks = dao.get_tracks(is_valid=is_valid)
+
+    for track in tracks:
+
+        original_cues = getattr(track, "Cues", [])
+        if not original_cues:
+            continue
+
+        remaining_cues = [
+            cue for cue in original_cues if getattr(cue, "Comment", "") != "1.1Bars"
+        ]
+        to_be_removed = [
+            cue for cue in original_cues if getattr(cue, "Comment", "") == "1.1Bars"
+        ]
+
+        track.Cues = remaining_cues
+
+        for cue in to_be_removed:
+            dao.db.delete(cue)
+
+    dao.db.commit()
