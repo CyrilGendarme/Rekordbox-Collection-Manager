@@ -10,6 +10,7 @@ from pyrekordbox import Rekordbox6Database
 from pyrekordbox.db6.database import DjmdContent
 from pyrekordbox.db6.tables import DjmdCue
 
+
 class _MissingMasterPlaylistsFilter(logging.Filter):
     """Filter out the known non-blocking missing masterPlaylists warning."""
 
@@ -250,27 +251,6 @@ class RekordboxDAO:
         tracks.sort(key=lambda t: (getattr(t, "Title", "") or "").lower())
 
         return tracks
-
-    def remove_memory_cues_from_track(self, track_id: int | str) -> Any:
-        """Remove all memory cues from a track, leaving hot cues intact."""
-        content = self._get_track_by_id(track_id)
-        if content is None:
-            raise ValueError(f"Track not found for ID: {track_id}")
-
-        original_cues = getattr(content, "Cues", [])
-        if not original_cues:
-            return content
-
-        remaining_cues = [cue for cue in original_cues if getattr(cue, "Kind", 0) != 0]
-        to_be_removed = [cue for cue in original_cues if getattr(cue, "Kind", 0) == 0]
-
-        if hasattr(content, "Cues"):
-            content.Cues = remaining_cues
-
-        for cue in to_be_removed:
-            self.db.delete(cue)
-
-        return content
 
     def _get_track_by_id(self, track_id: int | str) -> Any:
         result = self.db.get_content(ID=track_id)

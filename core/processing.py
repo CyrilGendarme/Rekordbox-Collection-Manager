@@ -20,7 +20,9 @@ def load_tracks(
     tracks = dao.get_all_tracks()
 
     def is_valid(track: DjmdContent):
-        if track.Genre.Name in {
+        if track.GenreName in {
+            # if track.Genre.Name in {
+            # if track.Genre.Name in {
             "Loop Samples",
             "Sample",
             "Religious",
@@ -243,9 +245,26 @@ def process_all_tracks_gui(root):
 
 def remove_memory_cues_if_less_than_two():
 
+    dao = RekordboxDAO()
     tracks = load_tracks(False, True)
-    for track in tracks:
-        dao = RekordboxDAO()
-        dao.remove_memory_cues_from_track(track.ID)
 
-    dao.db.commit()
+    for track in tracks:
+        """Remove all memory cues from a track, leaving hot cues intact."""
+        content = dao._get_track_by_id(track.ID)
+        if content is None:
+            raise ValueError(f"Track not found for ID: {track.ID}")
+
+        original_cues = getattr(content, "Cues", [])
+        if not original_cues:
+            return content
+
+        remaining_cues = [cue for cue in original_cues if getattr(cue, "Kind", 0) != 0]
+        to_be_removed = [cue for cue in original_cues if getattr(cue, "Kind", 0) == 0]
+
+        if hasattr(content, "Cues"):
+            content.Cues = remaining_cues
+
+        for cue in to_be_removed:
+            dao.db.delete(cue)
+
+        dao.db.commit()
