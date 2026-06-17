@@ -3,7 +3,6 @@ Minimal GUI entry point for the Rekordbox Phrase-to-Memory Cue app.
 """
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog
 from tkinter import ttk
 
 from core import processing
@@ -43,11 +42,16 @@ def main():
     btn3 = ttk.Button(main_frame, text="All Tracks", command=process_all_tracks)
     btn3.pack(fill="x", padx=20, pady=10)
 
+    btn4 = ttk.Button(
+        main_frame,
+        text="Remove memory cues on tracks with less than two",
+        command=processing.remove_memory_cues_if_less_than_two,
+    )
+    btn4.pack(fill="x", padx=20, pady=10)
+
     # --- Configuration Tab ---
     config_frame = ttk.Frame(notebook)
     notebook.add(config_frame, text="Configuration")
-
-    processing.common_actions()
 
     root.mainloop()
 

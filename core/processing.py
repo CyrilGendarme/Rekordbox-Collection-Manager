@@ -1,38 +1,46 @@
 from pathlib import Path
-import tkinter as tk
 from tkinter import messagebox, simpledialog
-from core import actions, user_config, detection
-from data.repositories import RekordboxRepository
+from core import actions, detection
 import numpy as np
 import re
 import string
+from data import RekordboxDAO
+from pyrekordbox.db6.database import DjmdContent
 
 from core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 from os_utils.rekordbox_process import focus_rekordbox_window
 
 
-def load_tracks():
-    repo = RekordboxRepository(
-        custom_path=Path(REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH)
-    )
-    tracks = repo.load_all_tracks()
-    tracks.reverse()  # TODO : to be removed, For dev purposes
-    return list(
-        filter(
-            lambda track: (
-                not re.search(r"Sample", str(track.genre), re.IGNORECASE)
-                and track.genre != "Loop Samples"
-                and track.genre != "Sample"
-                and track.genre != "Religious"
-                and track.genre != "Traditional"
-                and track.genre != "Reggae"
-                and not any(
-                    pm.get("Num") == "-1" for pm in getattr(track, "position_marks", [])
-                )
-            ),
-            tracks,
-        )
-    )
+def load_tracks(
+    track_without_memory_cues: bool = True,
+    tracks_with_less_than_three_memory_cues: bool = False,
+):
+    dao = RekordboxDAO()
+
+    tracks = dao.get_all_tracks()
+
+    def is_valid(track: DjmdContent):
+        if track.Genre.Name in {
+            "Loop Samples",
+            "Sample",
+            "Religious",
+            "Traditional",
+        }:
+            return False
+
+        # only apply this when requested
+        if track_without_memory_cues:
+            if any(c.Kind == 0 for c in getattr(track, "Cues", [])):
+                return False
+
+        if tracks_with_less_than_three_memory_cues:
+            cues = [c for c in getattr(track, "Cues", []) if c.Kind == 0]
+            if len(cues) > 3 or len(cues) == 0:
+                return False
+
+        return True
+
+    return list(filter(is_valid, tracks))
 
 
 def common_actions():
@@ -231,3 +239,13 @@ def process_all_tracks_gui(root):
             print("----- has loaded next track -----")
 
     messagebox.showwarning("Done", "Memory cues set for all tracks", parent=root)
+
+
+def remove_memory_cues_if_less_than_two():
+
+    tracks = load_tracks(False, True)
+    for track in tracks:
+        dao = RekordboxDAO()
+        dao.remove_memory_cues_from_track(track.ID)
+
+    dao.db.commit()

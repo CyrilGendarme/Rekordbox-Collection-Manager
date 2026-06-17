@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from typing import List, Optional, Set, Tuple
-
+from typing import List, Optional, Dict, Any
+from pyrekordbox.db6.database import DjmdContent
 
 @dataclass
 class Track:
@@ -34,3 +34,30 @@ class Track:
     def display_name(self) -> str:
         """Return formatted track name for display."""
         return f"{self.artist} - {self.name}"
+
+    @classmethod
+    def from_djmdContent(cls, row: DjmdContent) -> "Track":
+        """
+        Build a Track from a Rekordbox djmdContent row.
+        `row` can be a dict (e.g. sqlite row with keys).
+        """
+
+        return cls(
+            id=str(row.get("ID")),
+            name=row.get("Title") or "",
+            artist=(
+                row.get("SrcArtistName")
+                or row.get("ArtistID")  # fallback (still an ID, not ideal)
+                or "Unknown"
+            ),
+            genre=None,  # would require Genre lookup table join
+            bpm=float(row["BPM"]) if row.get("BPM") is not None else None,
+            rating=row.get("Rating"),
+            file_path=row.get("FolderPath") or row.get("rb_LocalFolderPath"),
+            album=row.get("SrcAlbumName"),
+            year=row.get("ReleaseYear"),
+            comment=row.get("Commnt"),
+            length=row.get("Length"),
+            key=None,  # requires join with djmdKey
+            tags=[row["Tag"]] if row.get("Tag") else [],
+        )

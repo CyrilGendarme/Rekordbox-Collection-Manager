@@ -1,4 +1,4 @@
 from .models import Track
-from .repositories.rekordbox_repository import RekordboxRepository
+from .rekrodbox_dao import RekordboxDAO
 
-__all__ = ["Track", "RekordboxRepository"]
+__all__ = ["Track", "RekordboxDAO"]

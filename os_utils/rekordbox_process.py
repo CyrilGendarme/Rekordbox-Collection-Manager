@@ -79,7 +79,9 @@ def make_rekordbox_fullscreen_on_main_screen():
         rekordbox_win.maximize()
         hwnd = rekordbox_win._hWnd
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        time.sleep(0.2)
         win32gui.BringWindowToTop(hwnd)
+        time.sleep(0.2)
         win32gui.SetForegroundWindow(hwnd)
 
         print("Rekordbox moved and maximized on main screen.")

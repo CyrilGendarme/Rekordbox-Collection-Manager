@@ -19,7 +19,6 @@ from core.user_config import (
     PREVIOUS_TRACK_IN_COLLECTION_KEY,
 )
 from os_utils.rekordbox_process import focus_rekordbox_window
-from data.repositories import RekordboxRepository
 from utils import screenshot_and_show
 
 PADS_MODE_DROPDOWN = (50, 465)  # x, y
@@ -71,16 +70,6 @@ def switch_focus():
     """
     send_key_to_rekordbox(SWITCH_FOCUS_KEY)
     pass
-
-
-def load_tracks_from_collection(xml_path=None):
-    """
-    Load all tracks from the Rekordbox collection using the repository.
-    If xml_path is None, use the default detection logic.
-    Returns: List[Track]
-    """
-    repo = RekordboxRepository(custom_path=Path(xml_path) if xml_path else None)
-    return repo.load_all_tracks()
 
 
 def search_and_load_track(track_name):
