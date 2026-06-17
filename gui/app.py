@@ -1,57 +1,28 @@
 """
 Minimal GUI entry point for the Rekordbox Phrase-to-Memory Cue app.
+Generic app launcher with tab system.
 """
 
 import tkinter as tk
 from tkinter import ttk
 
-from core import processing
 from gui.theme import apply_theme
+from gui.tab import build_main_tab, build_config_tab
+
 
 def main():
-
     root = tk.Tk()
     root.title("Rekordbox Phrase Cue Setter")
     root.geometry("500x300")
+
     apply_theme(root)
 
     notebook = ttk.Notebook(root)
     notebook.pack(fill="both", expand=True)
 
-    # --- Main Tab ---
-    main_frame = ttk.Frame(notebook)
-    notebook.add(main_frame, text="Main")
-
-    def process_specific_track():
-        processing.process_specific_track_gui(root)
-
-    def process_track_per_track():
-        processing.process_track_per_track_gui(root)
-
-    def process_all_tracks():
-        processing.process_all_tracks_gui(root)
-
-    btn1 = ttk.Button(
-        main_frame, text="Track per Track", command=process_track_per_track
-    )
-    btn1.pack(fill="x", padx=20, pady=10)
-
-    btn2 = ttk.Button(main_frame, text="Specific Track", command=process_specific_track)
-    btn2.pack(fill="x", padx=20, pady=10)
-
-    btn3 = ttk.Button(main_frame, text="All Tracks", command=process_all_tracks)
-    btn3.pack(fill="x", padx=20, pady=10)
-
-    btn4 = ttk.Button(
-        main_frame,
-        text="Remove memory cues on tracks with less than two",
-        command=processing.remove_memory_cues_if_less_than_two,
-    )
-    btn4.pack(fill="x", padx=20, pady=10)
-
-    # --- Configuration Tab ---
-    config_frame = ttk.Frame(notebook)
-    notebook.add(config_frame, text="Configuration")
+    # Build tabs (delegated)
+    build_main_tab(notebook, root)
+    build_config_tab(notebook, root)
 
     root.mainloop()
 
