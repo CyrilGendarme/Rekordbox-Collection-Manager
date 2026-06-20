@@ -109,10 +109,23 @@ class RekordboxDAO:
         return sorted(tags)
 
     def load_tracks_from_collection(self) -> list[Track]:
-        """Return the Rekordbox collection converted to app-level Track objects."""
-        return [Track.from_djmdContent(row) for row in self.get_tracks()]
+        """Return Rekordbox collection as Track objects, filtering invalid rows."""
 
-    def get_all_playlists_from_collection(self) -> list[str]:
+        tracks: list[Track] = []
+
+        for row in self.get_tracks():
+            title = self._row_value(row, "Title")
+
+            # skip invalid records
+            if not title or not str(title).strip():
+                continue
+
+            track = Track.from_djmdContent(row)
+            tracks.append(track)
+
+        return tracks
+
+    def load_playlists_from_collection(self) -> list[str]:
         """Return playlist names from Rekordbox when the underlying API exposes them.
 
         The pyrekordbox API surface varies across versions, so this method tries a few

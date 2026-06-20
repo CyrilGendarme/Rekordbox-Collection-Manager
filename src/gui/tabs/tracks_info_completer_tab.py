@@ -79,6 +79,10 @@ class TracksInfoCompleterFeature(TabFeature):
         )
         self.tracks_list.grid(row=1, column=0, sticky="nsew")
 
+        context.controller.register_collection_loaded_callbacks(
+            self.tracks_list.set_tracks
+        )
+
         # ── Buttons ──────────────────────────────────────────────────────
         btn_frame = ttk.Frame(container)
         btn_frame.grid(row=2, column=0, sticky="w", pady=(8, 0))
@@ -109,7 +113,6 @@ class TracksInfoCompleterFeature(TabFeature):
             for t in tracks
         }
 
-
     def _on_track_selected(self, track: Optional[Track]) -> None:
         self.selected_track = track
 
@@ -129,14 +132,13 @@ class TracksInfoCompleterFeature(TabFeature):
                 {"name": new_name, "artist": new_artist, "album": new_album}
             )
 
-
     def _on_validate(self) -> None:
         """Emit the on_validate callback with (track_id, name, artist, album) tuples."""
         if not self.filtered_tracks:
             return
-        
+
         update_track_rekordbox_metadata(self.filtered_tracks)
-        
+
         updates = [
             (
                 track.id,

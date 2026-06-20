@@ -106,13 +106,13 @@ class MainWindow:
         )
         build_registered_tabs(context, features)
 
-        # Keep a stable handle for AppController's track operations.
-        self.tracks_tab = None
-        for feature in features:
-            main_tab = getattr(feature, "main_tab", None)
-            if main_tab is not None and hasattr(main_tab, "set_tracks"):
-                self.tracks_tab = main_tab
-                break
+        # # Keep a stable handle for AppController's track operations.
+        # self.tracks_tab = None
+        # for feature in features:
+        #     main_tab = getattr(feature, "main_tab", None)
+        #     if main_tab is not None and hasattr(main_tab, "set_tracks"):
+        #         self.tracks_tab = main_tab
+        #         break
 
     def set_status_callback(self, callback: Callable[[str], None]):
         self._status_callback = callback
@@ -121,10 +121,6 @@ class MainWindow:
         self._status_var.set(message)
         if self._status_callback:
             self._status_callback(message)
-
-    def set_tracks(self, tracks):
-        if self.tracks_tab:
-            self.tracks_tab.set_tracks(tracks)
 
     def show_info(self, title: str, message: str):
         messagebox.showinfo(title, message, parent=self.root)

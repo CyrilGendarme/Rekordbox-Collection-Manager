@@ -35,6 +35,13 @@ class Track:
         """Return formatted track name for display."""
         return f"{self.artist} - {self.name}"
 
+    @staticmethod
+    def _row_value(row: DjmdContent, key: str, default: Any = None) -> Any:
+        """Read a value from a dict-like or attribute-like Rekordbox row."""
+        if hasattr(row, "get"):
+            return row.get(key, default)
+        return getattr(row, key, default)
+
     @classmethod
     def from_djmdContent(cls, row: DjmdContent) -> "Track":
         """
@@ -42,22 +49,25 @@ class Track:
         `row` can be a dict (e.g. sqlite row with keys).
         """
 
+        bpm = cls._row_value(row, "BPM")
+
         return cls(
-            id=str(row.get("ID")),
-            name=row.get("Title") or "",
+            id=str(cls._row_value(row, "ID")),
+            name=cls._row_value(row, "Title") or "",
             artist=(
-                row.get("SrcArtistName")
-                or row.get("ArtistID")  # fallback (still an ID, not ideal)
+                cls._row_value(row, "SrcArtistName")
+                or cls._row_value(row, "ArtistID")  # fallback (still an ID, not ideal)
                 or "Unknown"
             ),
             genre=None,  # would require Genre lookup table join
-            bpm=float(row["BPM"]) if row.get("BPM") is not None else None,
-            rating=row.get("Rating"),
-            file_path=row.get("FolderPath") or row.get("rb_LocalFolderPath"),
-            album=row.get("SrcAlbumName"),
-            year=row.get("ReleaseYear"),
-            comment=row.get("Commnt"),
-            length=row.get("Length"),
+            bpm=float(bpm) if bpm is not None else None,
+            rating=cls._row_value(row, "Rating"),
+            file_path=cls._row_value(row, "FolderPath")
+            or cls._row_value(row, "rb_LocalFolderPath"),
+            album=cls._row_value(row, "SrcAlbumName"),
+            year=cls._row_value(row, "ReleaseYear"),
+            comment=cls._row_value(row, "Commnt"),
+            length=cls._row_value(row, "Length"),
             key=None,  # requires join with djmdKey
-            tags=[row["Tag"]] if row.get("Tag") else [],
+            tags=[cls._row_value(row, "Tag")] if cls._row_value(row, "Tag") else [],
         )

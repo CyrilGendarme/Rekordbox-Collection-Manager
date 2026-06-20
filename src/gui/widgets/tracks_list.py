@@ -1,6 +1,6 @@
 import re
 import tkinter as tk
-from tkinter import ttk
+from tkinter import Frame, ttk
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.data.models import Track
@@ -120,11 +120,11 @@ class TracksList(ttk.Frame):
         self._search_bar.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # ── Scrollable frame hosting the treeview ───────────────────────
-        self._scroll = ScrollableFrame(self)
+        self._scroll = Frame(self)
         self._scroll.grid(row=1, column=0, sticky="nsew")
 
         self._tree = SortableTreeview(
-            self._scroll.get_frame(),
+            self._scroll,
             columns=self._column_defs,
             show="headings",
             height=20,

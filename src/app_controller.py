@@ -1,6 +1,6 @@
 import logging
 import threading
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 from pathlib import Path
 
 from .data.models import Track
@@ -8,6 +8,7 @@ from .data.rekrodbox_dao import RekordboxDAO
 from .gui.main_window import MainWindow
 from .gui.tabs.memory_cues_tab import MemoryCuesFeature
 from .gui.tabs.tracks_info_completer_tab import TracksInfoCompleterFeature
+
 
 class AppController:
     """Main application controller - orchestrates services and GUI."""
@@ -33,6 +34,7 @@ class AppController:
         self.track_store: Dict[str, List[Track]] = {"library": []}
         self.playlist_store: Dict[str, List[str]] = {}
         self._status_callback: Optional[Callable[[str], None]] = None
+        self._collection_loaded_callbacks: List[Callable[[], None]] = []
 
         # Initialize GUI
         self.window = MainWindow(controller=self)
@@ -77,40 +79,55 @@ class AppController:
         return list(self.track_store.get(key, []))
 
     def refresh_collection(self) -> None:
-        """Reload tracks and playlists from disk in a background thread."""
-        threading.Thread(target=self._load_collection, daemon=True).start()
 
-    def _load_collection(self) -> None:
-        """Load tracks/playlists using RekordboxDAO, then publish results to the UI."""
-        try:
-            self.set_status("Loading tracks and playlists...")
-            dao = RekordboxDAO()
+        def load_collection() -> None:
+            """Load tracks/playlists using RekordboxDAO, then publish results to the UI."""
+            try:
+                self.set_status("Loading tracks and playlists...")
+                dao = RekordboxDAO()
 
-            tracks = dao.load_tracks_from_collection()
-            playlists = dao.get_all_playlists_from_collection()
+                tracks = dao.load_tracks_from_collection()
+                playlists = dao.load_playlists_from_collection()
 
-            def apply_results():
-                self.set_tracks("library", tracks)
+                self.track_store["library"] = list(tracks)
                 self.playlist_store["library"] = list(playlists)
-
-                if self.window.tracks_tab is not None:
-                    self.window.set_tracks(self.get_tracks("library"))
-
                 self.set_status(
                     f"Loaded {len(tracks):,} tracks and {len(playlists):,} playlists"
                 )
+                self.call_collection_loaded_callbacks(list(tracks))
 
-            self.window.root.after(0, apply_results)
-        except Exception as exc:
-            self.logger.exception("Failed to refresh collection")
-
-            def apply_error():
+            except Exception as exc:
+                self.logger.exception("Failed to refresh collection")
                 self.set_status("Error loading collection")
                 self.window.show_error(
-                    "Load Error", f"Could not refresh collection: {exc}"
+                    "Load Error", f"Could not refresh collection: { str(exc)}"
                 )
 
-            self.window.root.after(0, apply_error)
+        """Reload tracks and playlists from disk in a background thread."""
+        threading.Thread(target=load_collection, daemon=True).start()
+
+    def register_collection_loaded_callbacks(
+        self,
+        callbacks: (
+            Callable[[list[Track]], None] | Iterable[Callable[[list[Track]], None]]
+        ),
+    ) -> None:
+        if callable(callbacks):
+            self._collection_loaded_callbacks.append(callbacks)
+        else:
+            self._collection_loaded_callbacks.extend(callbacks)
+
+    def clear_collection_loaded_callbacks(self) -> None:
+        """Remove all registered collection-loaded callbacks."""
+        self._collection_loaded_callbacks.clear()
+
+    def call_collection_loaded_callbacks(self, data: list) -> None:
+        """Invoke all registered callbacks with the same list argument."""
+        for callback in self._collection_loaded_callbacks:
+            try:
+                callback(data)
+            except Exception:
+                self.logger.exception("Collection loaded callback failed")
 
     # === APPLICATION LIFECYCLE ===
 
