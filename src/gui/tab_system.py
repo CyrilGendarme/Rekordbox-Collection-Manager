@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
 import tkinter as tk
 from tkinter import ttk
@@ -19,6 +19,7 @@ class FeatureContext:
 
     root: tk.Tk
     notebook: ttk.Notebook
+    controller: Optional[Any] = None
 
 
 class TabFeature(ABC):
@@ -34,7 +35,7 @@ class TabFeature(ABC):
         """Create and register an optional configuration tab for this feature."""
         return None
 
-    def _create_widgets(self, parent: ttk.Frame):
+    def _create_widgets(self, context: FeatureContext, parent: ttk.Frame):
         """Optional helper used by features that build widgets in one place."""
         return None
 

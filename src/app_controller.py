@@ -1,132 +1,116 @@
 import logging
 import threading
-from typing import List, Dict, Any, Optional
+from typing import Callable, Dict, List, Optional
 from pathlib import Path
 
 from .data.models import Track
+from .data.rekrodbox_dao import RekordboxDAO
 from .gui.main_window import MainWindow
-from .data.services.track_loading_service import TrackLoadingService
-from .data.services.metadata_service import update_mp3_tags
-
+from .gui.tabs.memory_cues_tab import MemoryCuesFeature
+from .gui.tabs.tracks_info_completer_tab import TracksInfoCompleterFeature
 
 class AppController:
     """Main application controller - orchestrates services and GUI."""
 
-    def __init__(self, custom_db_path: Optional[Path] = None):
+    _instance: "AppController | None" = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def get_instance(cls) -> "AppController":
+        return cls()
+
+    def __init__(self):
+        if getattr(self, "_initialized", False):
+            return
+
         self.logger = logging.getLogger(__name__)
 
-        # Initialize services
-        self.track_loader = TrackLoadingService(custom_db_path)
-        self.db_reader = RekordboxDBReader()
-
-        # Track storage
-        self.tracks: List[Track] = []
+        # Shared storage for features/tabs.
+        self.track_store: Dict[str, List[Track]] = {"library": []}
+        self.playlist_store: Dict[str, List[str]] = {}
+        self._status_callback: Optional[Callable[[str], None]] = None
 
         # Initialize GUI
-        self.window = MainWindow()
-        self._setup_callbacks()
+        self.window = MainWindow(controller=self)
+        self._register_features()
+        self.window.set_status_callback(self._on_window_status_changed)
 
         # Auto-load tracks and playlists on startup
-        self.load_tracks()
+        self.refresh_collection()
+        self._initialized = True
 
-    def _setup_callbacks(self):
-        """Setup GUI callbacks."""
-        self.window.on_load_tracks = self.load_tracks
-        self.window.tracks_tab.on_validate = self._on_validate_tracks
+    def _register_features(self) -> None:
+        """Register feature modules here to extend the app with more tabs."""
+        self.features = [TracksInfoCompleterFeature(), MemoryCuesFeature()]
+        self.window.register_features(self.features, controller=self)
+
+    # === STATUS CALLBACKS ===
+
+    def register_status_callback(self, callback: Callable[[str], None]) -> None:
+        """Expose a callback API so tabs/features can react to status changes."""
+        self._status_callback = callback
+
+    def get_status_callback(self) -> Callable[[str], None]:
+        """Expose the status setter callback to other modules."""
+        return self.set_status
+
+    def _on_window_status_changed(self, message: str) -> None:
+        if self._status_callback:
+            self._status_callback(message)
+
+    def set_status(self, message: str) -> None:
+        self.window.set_status(message)
+
+    def show_message_box(self, title: str, message: str, error: bool = False) -> None:
+        if error:
+            self.window.show_error(title, message)
+        else:
+            self.window.show_info(title, message)
 
     # === TRACK LOADING ===
 
-    def load_tracks(self):
-        """Load tracks from Rekordbox database (async)."""
-        self.window.set_status("Loading tracks...")
+    def get_tracks(self, key: str = "library") -> List[Track]:
+        return list(self.track_store.get(key, []))
 
-        def load_worker():
-            self.track_loader.load_tracks(
-                on_success=lambda tracks: self.window.root.after(
-                    0, self._on_tracks_loaded, tracks
-                ),
-                on_error=lambda error: self.window.root.after(
-                    0, self._on_load_error, error
-                ),
-            )
+    def refresh_collection(self) -> None:
+        """Reload tracks and playlists from disk in a background thread."""
+        threading.Thread(target=self._load_collection, daemon=True).start()
 
-        thread = threading.Thread(target=load_worker, daemon=True)
-        thread.start()
-
-    def _on_tracks_loaded(self, tracks: List[Track]):
-        """Handle successful track loading."""
-        self.tracks = tracks
-        self.window.set_tracks(tracks)
-        self.window.set_status(f"Loaded {len(tracks):,} tracks")
-
-    def _on_load_error(self, error_message: str):
-        """Handle track loading error."""
-        self.window.set_status("Error loading tracks")
-        self.window.show_error("Load Error", error_message)
-
-    def _on_validate_tracks(self, updates: list):
-        """Push edited metadata for every track to the Rekordbox SQLCipher database
-        and write ID3 tags to the physical MP3 files."""
+    def _load_collection(self) -> None:
+        """Load tracks/playlists using RekordboxDAO, then publish results to the UI."""
         try:
-            if not self.db_reader.connect():
-                self.window.show_error(
-                    "Validate", "Could not connect to the Rekordbox database."
-                )
-                return
+            self.set_status("Loading tracks and playlists...")
+            dao = RekordboxDAO()
 
-            # Build a quick lookup from track_id -> Track for file-path access
-            track_by_id = {str(t.id): t for t in self.tracks}
+            tracks = dao.load_tracks_from_collection()
+            playlists = dao.get_all_playlists_from_collection()
 
-            failed = []
-            tag_failures = []
-            for track_id, name, artist, album in updates:
-                self.logger.info(
-                    "VALIDATE update request: track_id=%s title=%r artist=%r album=%r",
-                    track_id,
-                    name,
-                    artist,
-                    album,
-                )
-                success = self.db_reader.update_track(
-                    int(track_id),
-                    title=name or None,
-                    artist=artist or None,
-                    album=album or None,
-                )
-                if not success:
-                    failed.append(track_id)
-                    continue
+            def apply_results():
+                self.set_tracks("library", tracks)
+                self.playlist_store["library"] = list(playlists)
 
-                # Update ID3 tags on the physical file
-                track = track_by_id.get(str(track_id))
-                if track and track.file_path:
-                    ok = update_mp3_tags(
-                        track.file_path,
-                        title=name or None,
-                        artist=artist or None,
-                        album=album or None,
-                    )
-                    if not ok:
-                        tag_failures.append(track_id)
+                if self.window.tracks_tab is not None:
+                    self.window.set_tracks(self.get_tracks("library"))
 
-            self.db_reader.disconnect()
+                self.set_status(
+                    f"Loaded {len(tracks):,} tracks and {len(playlists):,} playlists"
+                )
 
-            updated = len(updates) - len(failed)
-            if not failed and not tag_failures:
-                self.window.set_status(f"{updated} track(s) updated successfully.")
-            elif tag_failures and not failed:
-                self.window.set_status(
-                    f"{updated} updated; {len(tag_failures)} ID3 tag write(s) skipped."
-                )
-            else:
-                self.window.set_status(f"{updated} updated, {len(failed)} failed.")
-                self.window.show_error(
-                    "Validate",
-                    f"{len(failed)} track(s) could not be updated: {failed}",
-                )
+            self.window.root.after(0, apply_results)
         except Exception as exc:
-            self.logger.exception("Error during batch validate")
-            self.window.show_error("Validate", f"Error: {exc}")
+            self.logger.exception("Failed to refresh collection")
+
+            def apply_error():
+                self.set_status("Error loading collection")
+                self.window.show_error(
+                    "Load Error", f"Could not refresh collection: {exc}"
+                )
+
+            self.window.root.after(0, apply_error)
 
     # === APPLICATION LIFECYCLE ===
 

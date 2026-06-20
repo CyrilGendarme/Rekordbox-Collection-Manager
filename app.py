@@ -9,10 +9,9 @@ import logging
 import os
 import sys
 import threading
-from pathlib import Path
 from tkinter import messagebox
 
-from src.gui.app import main as run_gui_app
+from src.app_controller import AppController
 from src.utils import rekordbox_process
 
 
@@ -76,7 +75,8 @@ def main() -> None:
         if ensure_rekordbox and not _bootstrap_rekordbox():
             sys.exit(1)
 
-        run_gui_app()
+        controller = AppController.get_instance()
+        controller.run()
 
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Application terminated by user")

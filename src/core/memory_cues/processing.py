@@ -1,5 +1,3 @@
-from pathlib import Path
-from tkinter import messagebox, simpledialog
 from src.core import detection
 import numpy as np
 import re
@@ -9,7 +7,7 @@ from pyrekordbox.db6.database import DjmdContent
 
 from src.core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 from src.utils.rekordbox_process import focus_rekordbox_window
-from src.core import actions
+from src.core.memory_cues import actions
 
 dao = RekordboxDAO()
 
@@ -158,21 +156,6 @@ def process_loaded_track():
         last_track_waveform = track_waveform
 
 
-def process_specific_track_gui(root):
-    track_name = simpledialog.askstring(
-        "Track Name", "Enter the track name:", parent=root
-    )
-    if not track_name:
-        messagebox.showwarning("Input required", "Track name is required.", parent=root)
-        return
-
-    focus_rekordbox_window()
-    actions.search_and_load_track(track_name)
-    actions.switch_focus()
-
-    process_loaded_track()
-
-
 def is_valid_tracks_without_memory_cues(track: DjmdContent):
     if track.GenreName in {
         # if track.Genre.Name in {
@@ -191,7 +174,7 @@ def is_valid_tracks_without_memory_cues(track: DjmdContent):
     return True
 
 
-def process_track_per_track_gui(root):
+def process_track_per_track_gui(message_box_callback: callable):
     filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
     focus_rekordbox_window()
@@ -200,10 +183,10 @@ def process_track_per_track_gui(root):
         actions.search_and_load_track(track.name)
         actions.switch_focus()
         process_loaded_track()
-        messagebox.showinfo("Done", f"Memory cues set for {track.name}.", parent=root)
+        message_box_callback("Done", f"Memory cues set for {track.name}.")
 
 
-def process_all_tracks_gui(root):
+def process_all_tracks_gui(message_box_callback: callable):
     filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
     focus_rekordbox_window()
@@ -227,7 +210,7 @@ def process_all_tracks_gui(root):
             actions.next_track_in_collection()
             print("----- has loaded next track -----")
 
-    messagebox.showwarning("Done", "Memory cues set for all tracks", parent=root)
+    message_box_callback("Done", "Memory cues set for all tracks")
 
 
 def remove_memory_cues_if_less_than_two():

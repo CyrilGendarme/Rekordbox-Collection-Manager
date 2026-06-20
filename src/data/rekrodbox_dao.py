@@ -9,7 +9,7 @@ from pyrekordbox import Rekordbox6Database
 
 from pyrekordbox.db6.database import DjmdContent
 from pyrekordbox.db6.tables import DjmdCue
-
+from .models import Track
 
 class _MissingMasterPlaylistsFilter(logging.Filter):
     """Filter out the known non-blocking missing masterPlaylists warning."""
@@ -108,6 +108,49 @@ class RekordboxDAO:
 
         return sorted(tags)
 
+    def load_tracks_from_collection(self) -> list[Track]:
+        """Return the Rekordbox collection converted to app-level Track objects."""
+        return [Track.from_djmdContent(row) for row in self.get_tracks()]
+
+    def get_all_playlists_from_collection(self) -> list[str]:
+        """Return playlist names from Rekordbox when the underlying API exposes them.
+
+        The pyrekordbox API surface varies across versions, so this method tries a few
+        common access patterns and falls back to an empty list if none are available.
+        """
+        playlist_getters = (
+            "get_playlist",
+            "get_playlists",
+            "get_master_playlist",
+            "get_master_playlists",
+        )
+
+        items: list[Any] = []
+        for getter_name in playlist_getters:
+            getter = getattr(self.db, getter_name, None)
+            if not callable(getter):
+                continue
+
+            result = getter()
+            items = result.all() if hasattr(result, "all") else result
+            break
+
+        if not items:
+            direct_attrs = ("Playlists", "MasterPlaylists", "playlist", "playlists")
+            for attr_name in direct_attrs:
+                value = getattr(self.db, attr_name, None)
+                if value:
+                    items = value
+                    break
+
+        names: list[str] = []
+        for item in items or []:
+            name = getattr(item, "Name", None)
+            if name:
+                names.append(str(name))
+
+        return sorted(dict.fromkeys(names))
+
     def get_track_genre(self, track_id: int | str) -> str:
         """Return the genre name of a track, if set."""
         content = self._get_track_by_id(track_id)
@@ -179,6 +222,32 @@ class RekordboxDAO:
 
         self.db.commit()
         return content
+
+    def update_track_metadata(
+        self,
+        track_id: int | str,
+        title: Optional[str] = None,
+        artist: Optional[str] = None,
+        album: Optional[str] = None,
+    ) -> bool:
+        """Update common track metadata fields and return a success flag."""
+        try:
+            fields: dict[str, Any] = {}
+            if title is not None:
+                fields["title"] = title
+            if artist is not None:
+                fields["artist"] = artist
+            if album is not None:
+                fields["album"] = album
+
+            self.update_info_of_track(track_id, **fields)
+            return True
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Failed to update track metadata in Rekordbox for track_id=%s",
+                track_id,
+            )
+            return False
 
     def update_info_of_track(self, track_id: int | str, **fields: Any) -> Any:
         """Update one track with generic fields (year, label, album, etc.).
