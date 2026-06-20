@@ -1,14 +1,15 @@
 from pathlib import Path
 from tkinter import messagebox, simpledialog
-from core import actions, detection
+from src.core import detection
 import numpy as np
 import re
 import string
-from data import RekordboxDAO
+from src.data import RekordboxDAO
 from pyrekordbox.db6.database import DjmdContent
 
-from core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
-from os_utils.rekordbox_process import focus_rekordbox_window
+from src.core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
+from src.utils.rekordbox_process import focus_rekordbox_window
+from src.core import actions
 
 dao = RekordboxDAO()
 

@@ -1,10 +1,10 @@
 import pyautogui
-from core.actions import send_key_to_rekordbox, click_on_rekordbox
+from src.core.actions import send_key_to_rekordbox, click_on_rekordbox
 
 pyautogui.FAILSAFE = False
 import re
 import unicodedata
-from core.user_config import (
+from src.core.user_config import (
     LOAD_TRACK_KEY,
     SWITCH_FOCUS_KEY,
     OPEN_SEARCH_TRACK_DIALOG,

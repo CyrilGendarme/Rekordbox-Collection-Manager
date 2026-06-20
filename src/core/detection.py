@@ -3,7 +3,7 @@ import numpy as np
 import pytesseract
 import pyautogui
 
-from utils import screenshot_and_show
+from src.utils import screenshot_and_show
 
 pyautogui.FAILSAFE = False
 

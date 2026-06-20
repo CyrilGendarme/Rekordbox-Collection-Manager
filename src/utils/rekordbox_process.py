@@ -14,7 +14,7 @@ from screeninfo import get_monitors
 pyautogui.FAILSAFE = False
 import os
 
-from core.user_config import REKORDBOX_EXE_PATH
+from src.core.user_config import REKORDBOX_EXE_PATH
 
 def _get_primary_monitor():
     for m in get_monitors():

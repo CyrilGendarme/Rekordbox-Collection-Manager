@@ -1,7 +1,7 @@
 import pyautogui
 
 pyautogui.FAILSAFE = False
-from os_utils.rekordbox_process import focus_rekordbox_window
+from src.utils.rekordbox_process import focus_rekordbox_window
 
 PADS_MODE_DROPDOWN = (50, 465)  # x, y
 MEMORY_CUES_DROPDOWN_OPTION = (50, 747)  # x, y
