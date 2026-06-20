@@ -7,13 +7,12 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.theme import apply_theme
-from gui.tab import build_main_tab, build_config_tab
-
+from gui.memory_cues_tab import build_main_tab, build_config_tab
 
 def main():
     root = tk.Tk()
     root.title("Rekordbox Phrase Cue Setter")
-    root.geometry("500x300")
+    # root.geometry("500x300")
 
     apply_theme(root)
 

@@ -6,11 +6,10 @@ Each function builds and registers a tab in the notebook.
 import tkinter as tk
 from tkinter import ttk
 
-from core import processing
-
+from core.memory_cues import processing
 
 # -----------------------------
-# MAIN TAB
+# MEMORY CUES TAB
 # -----------------------------
 def build_main_tab(notebook: ttk.Notebook, root: tk.Tk):
     main_frame = ttk.Frame(notebook)
