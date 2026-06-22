@@ -89,12 +89,12 @@ class AppController:
                 tracks = dao.load_tracks_from_collection()
                 playlists = dao.load_playlists_from_collection()
 
-                self.track_store["library"] = list(tracks)
-                self.playlist_store["library"] = list(playlists)
+                self.track_store["library"] = tracks
+                self.playlist_store["library"] = playlists
                 self.set_status(
                     f"Loaded {len(tracks):,} tracks and {len(playlists):,} playlists"
                 )
-                self.call_collection_loaded_callbacks(list(tracks))
+                self.call_collection_loaded_callbacks(tracks)
 
             except Exception as exc:
                 self.logger.exception("Failed to refresh collection")

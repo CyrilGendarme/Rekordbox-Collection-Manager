@@ -6,14 +6,14 @@ from src.data import RekordboxDAO
 from pyrekordbox.db6.database import DjmdContent
 
 from src.core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
-from src.utils.rekordbox_process import focus_rekordbox_window
+from src.utils.rekordbox_process import ensure_rekordbox_ready
 from src.core.memory_cues import actions
 
 dao = RekordboxDAO()
 
 
 def common_actions():
-    focus_rekordbox_window()
+    ensure_rekordbox_ready()
 
     actions.ensure_2_decks_display()
 
@@ -177,7 +177,7 @@ def is_valid_tracks_without_memory_cues(track: DjmdContent):
 def process_track_per_track_gui(message_box_callback: callable):
     filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
-    focus_rekordbox_window()
+    common_actions()
 
     for track in filtered_tracks:
         actions.search_and_load_track(track.name)
@@ -189,7 +189,7 @@ def process_track_per_track_gui(message_box_callback: callable):
 def process_all_tracks_gui(message_box_callback: callable):
     filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
-    focus_rekordbox_window()
+    common_actions()
 
     import random
 

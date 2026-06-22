@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import unquote
 from uuid import uuid4
 
-from pyrekordbox import Rekordbox6Database
+from pyrekordbox import Rekordbox6Database, RekordboxXml
 
 from pyrekordbox.db6.database import DjmdContent
 from pyrekordbox.db6.tables import DjmdCue
 from .models import Track
+from ..core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 
 class _MissingMasterPlaylistsFilter(logging.Filter):
     """Filter out the known non-blocking missing masterPlaylists warning."""
@@ -30,8 +32,6 @@ class RekordboxDAO:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        db_dir: str = "",
         key: str = "",
         unlock: bool = True,
     ):
@@ -39,15 +39,14 @@ class RekordboxDAO:
         if getattr(self, "_initialized", False):
             return
 
-        resolved_path, resolved_dir = self._resolve_db_inputs(db_path, db_dir)
         self._suppress_non_blocking_warnings()
 
         self.db = Rekordbox6Database(
-            path=resolved_path,
-            db_dir=resolved_dir,
             key=key,
             unlock=unlock,
         )
+
+        self.xml = RekordboxXml(path=REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH)
 
         self._initialized = True
 
@@ -59,6 +58,14 @@ class RekordboxDAO:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
+
+    # FIXME? way too heavy for its purpose, but only solutions found so far
+    def getTracksLocationFromXml(self) -> list[str]:
+        """Return all track locations found in the Rekordbox XML file."""
+        return [
+            unquote(track["Location"].replace("file://localhost/", "")).replace("\\", "/")
+            for track in self.xml.get_tracks()
+        ]
 
     def add_audio_file_as_track(self, audio_file_path: str, **track_fields: Any) -> Any:
         """Add a local audio file as a new track in the Rekordbox collection."""
@@ -113,11 +120,16 @@ class RekordboxDAO:
 
         tracks: list[Track] = []
 
+        # Used to ensure no DB trash are loaded
+        tracks_location_from_xml = set(self.getTracksLocationFromXml())
+
         for row in self.get_tracks():
-            title = self._row_value(row, "Title")
 
             # skip invalid records
-            if not title or not str(title).strip():
+            if (
+                not str(row.Title).strip()
+                or row.OrgFolderPath not in tracks_location_from_xml
+            ):
                 continue
 
             track = Track.from_djmdContent(row)

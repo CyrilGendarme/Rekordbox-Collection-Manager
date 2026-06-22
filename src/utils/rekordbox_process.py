@@ -117,3 +117,14 @@ def wait_for_rekordbox(timeout=60):
             return True
         time.sleep(1)
     return False
+
+
+def ensure_rekordbox_ready(messagebox):
+    if not is_rekordbox_running():
+        launch_rekordbox()
+        if not wait_for_rekordbox():
+            messagebox.showerror("Error", "Failed to launch Rekordbox.")
+            exit(1)
+
+    make_rekordbox_fullscreen_on_main_screen()
+    focus_rekordbox_window()

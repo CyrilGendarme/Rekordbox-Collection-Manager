@@ -139,7 +139,7 @@ class TracksList(ttk.Frame):
 
     def set_tracks(self, tracks: List[Track]) -> None:
         """Replace the full track list and refresh the view."""
-        self._all_tracks = list(tracks)
+        self._all_tracks = tracks
         self._apply_filter_and_search()
 
     def get_tracks(self) -> List[Track]:
@@ -207,8 +207,10 @@ class TracksList(ttk.Frame):
 
             tracks = sorted(tracks, key=_key, reverse=reverse)
 
-        for track in tracks:
-            item_id = self._tree.insert(values=self._row_values(track))
+        rows = [(track, self._row_values(track)) for track in tracks]
+
+        for track, values in rows:
+            item_id = self._tree.insert(values=values)
             self._item_to_track[item_id] = track
 
     # ------------------------------------------------------------------

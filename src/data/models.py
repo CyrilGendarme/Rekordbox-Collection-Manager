@@ -20,6 +20,7 @@ class Track:
     comment: Optional[str] = None
     length: Optional[int] = None  # Duration in seconds
     position_marks: Optional[list] = None  # List of POSITION_MARK dicts
+    org_folder_path: Optional[str] = None  # Original folder path
 
     def __post_init__(self):
         """Ensure tags and position_marks are always lists."""
@@ -35,13 +36,6 @@ class Track:
         """Return formatted track name for display."""
         return f"{self.artist} - {self.name}"
 
-    @staticmethod
-    def _row_value(row: DjmdContent, key: str, default: Any = None) -> Any:
-        """Read a value from a dict-like or attribute-like Rekordbox row."""
-        if hasattr(row, "get"):
-            return row.get(key, default)
-        return getattr(row, key, default)
-
     @classmethod
     def from_djmdContent(cls, row: DjmdContent) -> "Track":
         """
@@ -49,25 +43,23 @@ class Track:
         `row` can be a dict (e.g. sqlite row with keys).
         """
 
-        bpm = cls._row_value(row, "BPM")
+        bpm = row.BPM
+
+        # TODO : for now, fields are set with raw values, not actual references to Artist/Album/Tags IDs
 
         return cls(
-            id=str(cls._row_value(row, "ID")),
-            name=cls._row_value(row, "Title") or "",
-            artist=(
-                cls._row_value(row, "SrcArtistName")
-                or cls._row_value(row, "ArtistID")  # fallback (still an ID, not ideal)
-                or "Unknown"
-            ),
-            genre=None,  # would require Genre lookup table join
-            bpm=float(bpm) if bpm is not None else None,
-            rating=cls._row_value(row, "Rating"),
-            file_path=cls._row_value(row, "FolderPath")
-            or cls._row_value(row, "rb_LocalFolderPath"),
-            album=cls._row_value(row, "SrcAlbumName"),
-            year=cls._row_value(row, "ReleaseYear"),
-            comment=cls._row_value(row, "Commnt"),
-            length=cls._row_value(row, "Length"),
-            key=None,  # requires join with djmdKey
-            tags=[cls._row_value(row, "Tag")] if cls._row_value(row, "Tag") else [],
+            id=str(row.ID),
+            name=row.Title,
+            artist=row.ArtistName,
+            genre=row.GenreName,
+            bpm=bpm / 100.0,
+            rating=row.Rating,
+            file_path=row.FolderPath or row.rb_LocalFolderPath,
+            org_folder_path=row.FolderPath,
+            album=row.AlbumName,
+            year=row.ReleaseYear,
+            comment=row.Commnt,
+            length=row.Length / 60.0,
+            key=row.KeyName,
+            tags=row.MyTagNames,
         )

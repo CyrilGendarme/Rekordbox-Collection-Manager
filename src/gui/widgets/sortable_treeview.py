@@ -94,8 +94,9 @@ class SortableTreeview(ttk.Frame):
 
     def clear(self):
         """Clear all items."""
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        children = self.tree.get_children()
+        if children:
+            self.tree.delete(*children)
 
     def insert(
         self, values: Tuple[Any, ...], tags: Tuple[str, ...] = (), text: str = ""
