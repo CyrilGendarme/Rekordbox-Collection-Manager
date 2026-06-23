@@ -54,7 +54,7 @@ def _discogs_export_info_from_filename_stem(stem: str) -> DiscogsExportInfo:
         )
 
     try:
-        from src.api_services.discogs_service import get_release_info_by_record_ref
+        from src.services.discogs_service import get_release_info_by_record_ref
     except Exception:
         return DiscogsExportInfo(
             artist=parsed.artist,

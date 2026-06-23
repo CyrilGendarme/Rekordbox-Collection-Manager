@@ -16,7 +16,7 @@ import os
 
 from src.user_config import settings
 
-REKORDBOX_EXE_PATH = settings.REKORDBOX_EXE_PATHs
+REKORDBOX_EXE_PATH = settings.REKORDBOX_EXE_PATH  
 
 
 def _get_primary_monitor():

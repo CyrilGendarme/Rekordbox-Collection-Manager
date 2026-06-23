@@ -8,6 +8,7 @@ from .data.rekrodbox_dao import RekordboxDAO
 from .gui.main_window import MainWindow
 from .gui.tabs.collection_filtering_tab import CollectionFilteringFeature
 from .gui.tabs.memory_cues_tab import MemoryCuesFeature
+from .gui.tabs.ripped_records_to_tracks_tab import RippedRecordsToTracksFeature
 from .gui.tabs.tracks_info_completer_tab import TracksInfoCompleterFeature
 
 
@@ -51,6 +52,7 @@ class AppController:
         self.features = [
             TracksInfoCompleterFeature(),
             CollectionFilteringFeature(),
+            RippedRecordsToTracksFeature(),
             MemoryCuesFeature(),
         ]
         self.window.register_features(self.features, controller=self)
