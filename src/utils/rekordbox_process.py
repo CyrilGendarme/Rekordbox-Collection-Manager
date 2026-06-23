@@ -14,7 +14,10 @@ from screeninfo import get_monitors
 pyautogui.FAILSAFE = False
 import os
 
-from src.core.user_config import REKORDBOX_EXE_PATH
+from src.user_config import settings
+
+REKORDBOX_EXE_PATH = settings.REKORDBOX_EXE_PATHs
+
 
 def _get_primary_monitor():
     for m in get_monitors():
@@ -96,7 +99,7 @@ def is_rekordbox_running():
         if (
             proc.info["name"]
             and "rekordbox" in proc.info["name"].lower()
-            and not "code" in proc.info["name"].lower() # For dev in VS Code
+            and not "code" in proc.info["name"].lower()  # For dev in VS Code
         ):
             return True
     return False

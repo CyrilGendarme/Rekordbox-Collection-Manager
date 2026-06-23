@@ -5,12 +5,13 @@ import string
 from src.data import RekordboxDAO
 from pyrekordbox.db6.database import DjmdContent
 
-from src.core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
+from src.user_config import settings
 from src.utils.rekordbox_process import ensure_rekordbox_ready
 from src.core.memory_cues import actions
 
 dao = RekordboxDAO()
 
+REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH = settings.REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 
 def common_actions():
     ensure_rekordbox_ready()

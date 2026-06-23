@@ -1,0 +1,24 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):  
+    NEXT_PHRASE_KEY= "]"
+    MEMORY_CUE_KEY= "m"
+    SWITCH_FOCUS_KEY= "tab"
+    LOAD_TRACK_KEY= "n"
+    NEXT_TRACK_IN_COLLECTION_KEY= "down"
+    PREVIOUS_TRACK_IN_COLLECTION_KEY= "up"
+    SET_CUE= "-"
+    SAVE_CUE_AS_MEMORY_CUE= "f1"
+    ADVANCE_ONE_MESURE= "f2"
+    ADVANCE_ONE_BEAT= "f3"
+    OPEN_SEARCH_TRACK_DIALOG= "*"
+    PLAY_PAUSE_TRACK = "M"
+    LAYOUT_2_DECKS_HORIZONTAL= ")"
+    REKORDBOX_EXE_PATH = r"C:\Program Files\rekordbox\rekordbox 7.2.14\rekordbox.exe"
+    REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH = r"C:/Users\User\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
+
+    # Value retrieve from .env file
+    DISCOGS_TOKEN: str = ""
+
+settings = Settings()
