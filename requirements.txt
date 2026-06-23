@@ -6,3 +6,13 @@ pygetwindow
 pyautogui
 keyboard
 pyrekordbox
+
+librosa
+numpy
+scipy
+soundfile
+httpx
+mutagen
+pydub
+pydantic
+pydantic-settings
