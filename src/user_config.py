@@ -21,4 +21,16 @@ class Settings(BaseSettings):
     # Value retrieve from .env file
     DISCOGS_TOKEN: str = ""
 
+    # vars specific to samples magnifier
+    DURATION_BETWEEN_TTS_CHUNKS: int = 200  # Duration between each TTS chunk in millseconds
+    DURATION_BETWEEN_TTS_SEGMENT: int = 35  # in milliseconds
+    DURATION_BETWEEN_MAIN_SEQUENCES: int = 800  # ex: time between Web page and captions
+    SAMPLES_FOLDER: str = "C:\\Users\\User\\Desktop\\musique\\records rip\\tracks"
+    MODIFIED_SAMPLES_FOLDER: str = "C:\\Users\\User\\Desktop\\temp\\Nouveau dossier"
+    AUDIO_FILES_EXTENSIOINS: tuple[str, ...] = (".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac")
+    TRUNCATE_SILENCE_TRESHOLD: float = -35.0  # in dBFS
+    TRUNCATE_SILENCE_CHUNK_SIZE: int = 10  # in ms
+    AUDIO_EXPORT_FORMAT: str = "mp3"
+
+
 settings = Settings()

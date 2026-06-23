@@ -8,6 +8,8 @@ from typing import Iterable, List
 import numpy as np
 from pydub import AudioSegment
 
+from src.services.audio_metadata_service import write_audio_metadata
+
 
 _INVALID_FILENAME_CHARS_RE = re.compile(r"[<>:\"/\\|?*]")
 
@@ -60,37 +62,13 @@ def _name_from_metadata(meta: TrackExportMetadata | None, fallback_name: str) ->
 def _write_audio_metadata(path: Path, meta: TrackExportMetadata | None) -> None:
     if not meta:
         return
-    try:
-        from mutagen.id3 import TALB, TIT2, TPE1, TXXX
-        from mutagen.mp3 import MP3
-        from mutagen.wave import WAVE
-    except Exception:
-        return
-
-    try:
-        if path.suffix.lower() == ".mp3":
-            audio_file = MP3(str(path))
-        else:
-            audio_file = WAVE(str(path))
-
-        if audio_file.tags is None:
-            audio_file.add_tags()
-
-        if meta.title:
-            audio_file.tags["TIT2"] = TIT2(encoding=3, text=[meta.title])
-        if meta.artist:
-            audio_file.tags["TPE1"] = TPE1(encoding=3, text=[meta.artist])
-        if meta.album:
-            audio_file.tags["TALB"] = TALB(encoding=3, text=[meta.album])
-        if meta.record_ref:
-            audio_file.tags["TXXX:record_ref"] = TXXX(
-                encoding=3,
-                desc="record_ref",
-                text=[meta.record_ref],
-            )
-        audio_file.save()
-    except Exception:
-        return
+    write_audio_metadata(
+        file_path=path,
+        title=meta.title,
+        artist=meta.artist,
+        album=meta.album,
+        record_ref=meta.record_ref,
+    )
 
 
 def infer_export_settings(input_file: Path) -> AudioExportSettings:
