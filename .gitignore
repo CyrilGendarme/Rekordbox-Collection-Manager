@@ -71,3 +71,5 @@ Desktop.ini
 *.bak
 *.swp
 *.tmp
+
+output_tracks/

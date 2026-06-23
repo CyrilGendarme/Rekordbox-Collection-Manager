@@ -55,7 +55,7 @@ def _discogs_export_info_from_filename_stem(stem: str) -> DiscogsExportInfo:
 
     try:
         from src.services.discogs_service import get_release_info_by_record_ref
-    except Exception:
+    except Exception as e:
         return DiscogsExportInfo(
             artist=parsed.artist,
             album=parsed.track,
@@ -82,7 +82,8 @@ def _discogs_export_info_from_filename_stem(stem: str) -> DiscogsExportInfo:
         )
         for t in tracks:
             print(f"  - {t}")
-    except Exception:
+    except Exception as e:
+        print(f"Failed to get release info: {e}")
         return DiscogsExportInfo(
             artist=parsed.artist,
             album=parsed.track,

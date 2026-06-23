@@ -19,7 +19,7 @@ import re
 
 import httpx
 
-from .config import settings
+from src.user_config import settings
 from .discogs_models import (
     DiscogsReleaseInfo,
     DiscogsReleaseTrack,
@@ -40,13 +40,8 @@ _SIDE_RE = re.compile(r"^\s*([A-D])")
 
 def _auth_params() -> dict:
     """Return the best available auth query params."""
-    if settings.discogs_token:
-        return {"token": settings.discogs_token}
-    if settings.discogs_consumer_key and settings.discogs_consumer_secret:
-        return {
-            "key": settings.discogs_consumer_key,
-            "secret": settings.discogs_consumer_secret,
-        }
+    if settings.DISCOGS_TOKEN:
+        return {"token": settings.DISCOGS_TOKEN}
     return {}
 
 
