@@ -11,7 +11,12 @@ from pyrekordbox import Rekordbox6Database, RekordboxXml
 from pyrekordbox.db6.database import DjmdContent
 from pyrekordbox.db6.tables import DjmdCue
 from .models import Track
-from ..core.user_config import REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
+from src.user_config import settings
+
+REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH = (
+    settings.REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
+)
+
 
 class _MissingMasterPlaylistsFilter(logging.Filter):
     """Filter out the known non-blocking missing masterPlaylists warning."""
@@ -63,7 +68,9 @@ class RekordboxDAO:
     def getTracksLocationFromXml(self) -> list[str]:
         """Return all track locations found in the Rekordbox XML file."""
         return [
-            unquote(track["Location"].replace("file://localhost/", "")).replace("\\", "/")
+            unquote(track["Location"].replace("file://localhost/", "")).replace(
+                "\\", "/"
+            )
             for track in self.xml.get_tracks()
         ]
 
