@@ -33,6 +33,8 @@ class RippedRecordsToTracksFeature(TabFeature):
 
         self.root: tk.Tk | None = None
         self.tree: ttk.Treeview | None = None
+        self.run_btn: ttk.Button | None = None
+        self._is_running = False
 
     def build_main_tab(self, context: FeatureContext):
         self.root = context.root
@@ -108,13 +110,13 @@ class RippedRecordsToTracksFeature(TabFeature):
             6,
         )
 
-        run_btn = ttk.Button(
+        self.run_btn = ttk.Button(
             controls,
             text="Split Into Tracks",
             style="Accent.TButton",
             command=self._start_split,
         )
-        run_btn.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 4))
+        self.run_btn.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(14, 4))
 
         self.open_btn = ttk.Button(
             controls,
@@ -216,6 +218,9 @@ class RippedRecordsToTracksFeature(TabFeature):
             )
 
     def _start_split(self) -> None:
+        if self._is_running:
+            return
+
         output_folder = Path(self.output_dir.get())
 
         if not self.input_files:
@@ -238,6 +243,7 @@ class RippedRecordsToTracksFeature(TabFeature):
         self.status_var.set(
             f"Analyzing {len(self.input_files)} file(s)... this can take a while for long recordings."
         )
+        self._set_running(True)
 
         worker = threading.Thread(
             target=self._run_split,
@@ -314,6 +320,14 @@ class RippedRecordsToTracksFeature(TabFeature):
                     0,
                     lambda: self.status_var.set("Split failed. Adjust parameters and retry."),
                 )
+        finally:
+            if self.root is not None:
+                self.root.after(0, lambda: self._set_running(False))
+
+    def _set_running(self, is_running: bool) -> None:
+        self._is_running = is_running
+        if self.run_btn is not None:
+            self.run_btn.configure(state="disabled" if is_running else "normal")
 
     def _render_results(self, results: List[tuple[Path, SplitOutput]]) -> None:
         if self.tree is None:

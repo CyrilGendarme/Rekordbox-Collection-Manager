@@ -31,6 +31,8 @@ class SamplesMagnifierFeature(TabFeature):
 
         self.root: tk.Tk | None = None
         self.tree: ttk.Treeview | None = None
+        self.run_btn: ttk.Button | None = None
+        self._is_running = False
 
     def build_main_tab(self, context: FeatureContext):
         self.root = context.root
@@ -93,13 +95,13 @@ class SamplesMagnifierFeature(TabFeature):
             justify="left",
         ).grid(row=0, column=0, sticky="w", pady=(0, 12))
 
-        run_btn = ttk.Button(
+        self.run_btn = ttk.Button(
             controls,
             text="Process Samples",
             style="Accent.TButton",
             command=self._start_processing,
         )
-        run_btn.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.run_btn.grid(row=1, column=0, sticky="ew", pady=(0, 6))
 
         open_btn = ttk.Button(
             controls,
@@ -181,6 +183,9 @@ class SamplesMagnifierFeature(TabFeature):
             )
 
     def _start_processing(self) -> None:
+        if self._is_running:
+            return
+
         output_folder = Path(self.output_dir.get())
 
         if not self.input_files:
@@ -201,6 +206,7 @@ class SamplesMagnifierFeature(TabFeature):
             return
 
         self.status_var.set(f"Processing {len(self.input_files)} file(s)...")
+        self._set_running(True)
         worker = threading.Thread(
             target=self._run_processing,
             args=(list(self.input_files), output_folder),
@@ -302,6 +308,14 @@ class SamplesMagnifierFeature(TabFeature):
                         "Processing failed. Check inputs and settings, then retry."
                     ),
                 )
+        finally:
+            if self.root is not None:
+                self.root.after(0, lambda: self._set_running(False))
+
+    def _set_running(self, is_running: bool) -> None:
+        self._is_running = is_running
+        if self.run_btn is not None:
+            self.run_btn.configure(state="disabled" if is_running else "normal")
 
     def _render_results(self, rows: list[tuple[str, str, str]]) -> None:
         if self.tree is None:
