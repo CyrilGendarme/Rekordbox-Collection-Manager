@@ -6,6 +6,7 @@ from pathlib import Path
 from .data.models import Track
 from .data.rekrodbox_dao import RekordboxDAO
 from .gui.main_window import MainWindow
+from .gui.tabs.collection_filtering_tab import CollectionFilteringFeature
 from .gui.tabs.memory_cues_tab import MemoryCuesFeature
 from .gui.tabs.tracks_info_completer_tab import TracksInfoCompleterFeature
 
@@ -47,7 +48,11 @@ class AppController:
 
     def _register_features(self) -> None:
         """Register feature modules here to extend the app with more tabs."""
-        self.features = [TracksInfoCompleterFeature(), MemoryCuesFeature()]
+        self.features = [
+            TracksInfoCompleterFeature(),
+            CollectionFilteringFeature(),
+            MemoryCuesFeature(),
+        ]
         self.window.register_features(self.features, controller=self)
 
     # === STATUS CALLBACKS ===

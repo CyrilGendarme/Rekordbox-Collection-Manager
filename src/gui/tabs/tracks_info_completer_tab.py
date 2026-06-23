@@ -4,15 +4,16 @@ from typing import List, Optional, Callable
 
 from ..widgets import InfoLabel, TracksList
 from ...data.models import Track
-from ..tab_system import FeatureContext, TabFeature
+from ..tab_system import ConfigSubtabFeature, FeatureContext
 
 from src.core.tracks_info_completer.helpers import standardize_name
 from src.core.tracks_info_completer.actions import update_track_rekordbox_metadata
 
-class TracksInfoCompleterFeature(TabFeature):
+class TracksInfoCompleterFeature(ConfigSubtabFeature):
     """Tracks info completer feature."""
 
     name = "tracks_info_completer"
+    config_tab_title = "Tracks Info Completer"
 
     _EDITABLE_COLS = {"Track", "Track Name", "Artist", "Album"}
 
@@ -35,19 +36,11 @@ class TracksInfoCompleterFeature(TabFeature):
 
         return main_frame
 
-    def build_config_tab(self, context: FeatureContext):
-        config_frame = ttk.Frame(context.notebook)
-        context.notebook.add(
-            config_frame,
-            text="Tracks Info Completer Config",
-        )
-
+    def _create_config_widgets(self, context: FeatureContext, parent: ttk.Frame) -> None:
         ttk.Label(
-            config_frame,
+            parent,
             text="Tracks configuration settings coming soon...",
         ).pack(padx=20, pady=20)
-
-        return config_frame
 
     # ------------------------------------------------------------------
     # UI

@@ -24,6 +24,26 @@ def _attr_as_str(value) -> str:
     return str(value)
 
 
+def _sort_key_value(value):
+    """Return a stable sort key that preserves numeric ordering when possible."""
+    if value is None:
+        return (2, "")
+
+    if isinstance(value, (int, float)):
+        return (0, float(value))
+
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return (2, "")
+        try:
+            return (0, float(stripped))
+        except ValueError:
+            return (1, stripped.lower())
+
+    return (1, str(value).lower())
+
+
 class TracksList(ttk.Frame):
     """Generic UI component that displays a list of Track objects.
 
@@ -202,8 +222,7 @@ class TracksList(ttk.Frame):
             reverse = self._tree.sort_reverse
 
             def _key(t: Track):
-                v = _attr_as_str(getattr(t, attr, None))
-                return v.lower()
+                return _sort_key_value(getattr(t, attr, None))
 
             tracks = sorted(tracks, key=_key, reverse=reverse)
 

@@ -7,11 +7,12 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.core.memory_cues import processing
-from src.gui.tab_system import FeatureContext, TabFeature
+from src.gui.tab_system import ConfigSubtabFeature, FeatureContext
 
 
-class MemoryCuesFeature(TabFeature):
+class MemoryCuesFeature(ConfigSubtabFeature):
     name = "memory_cues"
+    config_tab_title = "Memory Cues"
 
     def __init__(self):
         pass
@@ -53,12 +54,8 @@ class MemoryCuesFeature(TabFeature):
     # -----------------------------
     # CONFIG TAB
     # -----------------------------
-    def build_config_tab(self, context: FeatureContext):
-        config_frame = ttk.Frame(context.notebook)
-        context.notebook.add(config_frame, text="Configuration")
-
+    def _create_config_widgets(self, context: FeatureContext, parent: ttk.Frame) -> None:
         ttk.Label(
-            config_frame,
+            parent,
             text="Configuration settings coming soon...",
         ).pack(padx=20, pady=20)
-        return config_frame

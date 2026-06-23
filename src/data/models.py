@@ -21,6 +21,7 @@ class Track:
     length: Optional[int] = None  # Duration in seconds
     position_marks: Optional[list] = None  # List of POSITION_MARK dicts
     org_folder_path: Optional[str] = None  # Original folder path
+    play_count: Optional[int] = None  # Number of times the track has been played
 
     def __post_init__(self):
         """Ensure tags and position_marks are always lists."""
@@ -62,4 +63,5 @@ class Track:
             length=row.Length / 60.0,
             key=row.KeyName,
             tags=row.MyTagNames,
+            play_count=row.DJPlayCount,
         )
