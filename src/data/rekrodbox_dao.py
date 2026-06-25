@@ -299,6 +299,10 @@ class RekordboxDAO:
         title: Optional[str] = None,
         artist: Optional[str] = None,
         album: Optional[str] = None,
+        year: Optional[int] = None,
+        label: Optional[str] = None,
+        genre: Optional[str] = None,
+        bpm: Optional[float] = None,
     ) -> bool:
         """Update common track metadata fields and return a success flag."""
         try:
@@ -309,6 +313,14 @@ class RekordboxDAO:
                 fields["artist"] = artist
             if album is not None:
                 fields["album"] = album
+            if year is not None:
+                fields["year"] = year
+            if label is not None:
+                fields["label"] = label
+            if genre is not None:
+                fields["genre"] = genre
+            if bpm is not None:
+                fields["bpm"] = bpm
 
             self.update_info_of_track(track_id, **fields)
             return True
@@ -338,6 +350,9 @@ class RekordboxDAO:
 
         if "year" in fields:
             fields["ReleaseYear"] = fields.pop("year")
+        if "bpm" in fields:
+            bpm_value = fields.pop("bpm")
+            fields["BPM"] = None if bpm_value in (None, "") else int(round(float(bpm_value) * 100.0))
         if "title" in fields:
             fields["Title"] = fields.pop("title")
 

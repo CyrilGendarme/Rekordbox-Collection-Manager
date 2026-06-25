@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import lru_cache
 import logging
 from pathlib import Path
 
+from src.services.bandcamp_service import lookup_bandcamp_album
+from src.services.discogs_service import lookup_discogs_metadata
+
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CompletedMetadata:
+    title: str
+    artist: str
+    album: str = ""
+    year: int | None = None
+    label: str = ""
+    source: str = ""
 
 
 def write_metadata_to_mp3(
@@ -42,12 +57,70 @@ def write_metadata_to_mp3(
     id3_tags.save(file_path)
 
 
+@lru_cache(maxsize=256)
+def complete_track_metadata(
+    title: str, artist: str, album: str = ""
+) -> CompletedMetadata:
+    normalized_title = (title or "").strip()
+    normalized_artist = (artist or "").strip()
+    normalized_album = (album or "").strip()
+
+    if not normalized_title or not normalized_artist:
+        return CompletedMetadata(
+            title=normalized_title,
+            artist=normalized_artist,
+            album=normalized_album,
+        )
+
+    discogs_data = lookup_discogs_metadata(
+        title=normalized_title,
+        artist=normalized_artist,
+        album=normalized_album,
+    )
+    if discogs_data:
+        album_candidate = normalized_album or str(discogs_data.get("album") or "")
+        return CompletedMetadata(
+            title=normalized_title,
+            artist=normalized_artist,
+            album=append_album_ref(
+                album_candidate,
+                str(discogs_data.get("catno") or ""),
+            ),
+            year=_coerce_year(discogs_data.get("year")),
+            label=str(discogs_data.get("label") or "").strip(),
+            source="Discogs",
+        )
+
+    if not normalized_album:
+        bandcamp_album = lookup_bandcamp_album(
+            title=normalized_title,
+            artist=normalized_artist,
+        )
+        if bandcamp_album:
+            return CompletedMetadata(
+                title=normalized_title,
+                artist=normalized_artist,
+                album=bandcamp_album.strip(),
+                source="Bandcamp",
+            )
+
+    return CompletedMetadata(
+        title=normalized_title,
+        artist=normalized_artist,
+        album=normalized_album,
+    )
+
+
 def write_audio_metadata(
     file_path: str | Path,
     title: str | None = None,
     artist: str | None = None,
     album: str | None = None,
     record_ref: str | None = None,
+    year: int | str | None = None,
+    label: str | None = None,
+    genre: str | None = None,
+    bpm: float | int | str | None = None,
 ) -> bool:
     """Write common metadata tags to MP3 or WAV files using mutagen."""
     path = Path(file_path)
@@ -61,7 +134,7 @@ def write_audio_metadata(
         return False
 
     try:
-        from mutagen.id3 import ID3, TALB, TIT2, TPE1, TXXX
+        from mutagen.id3 import ID3, TALB, TBPM, TCON, TDRC, TIT2, TPE1, TPUB, TXXX
         from mutagen.mp3 import MP3
         from mutagen.wave import WAVE
     except ImportError:
@@ -84,6 +157,14 @@ def write_audio_metadata(
             audio_file.tags["TPE1"] = TPE1(encoding=3, text=[artist])
         if album is not None:
             audio_file.tags["TALB"] = TALB(encoding=3, text=[album])
+        if year not in (None, ""):
+            audio_file.tags["TDRC"] = TDRC(encoding=3, text=[str(year)])
+        if label is not None:
+            audio_file.tags["TPUB"] = TPUB(encoding=3, text=[label])
+        if genre is not None:
+            audio_file.tags["TCON"] = TCON(encoding=3, text=[genre])
+        if bpm not in (None, ""):
+            audio_file.tags["TBPM"] = TBPM(encoding=3, text=[str(bpm)])
         if record_ref is not None:
             audio_file.tags["TXXX:record_ref"] = TXXX(
                 encoding=3,
@@ -96,7 +177,6 @@ def write_audio_metadata(
     except Exception:
         logger.exception("Failed to update audio metadata for: %s", path)
         return False
-
 
 
 def copy_mp3_metadata(source_path: str, target_path: str) -> bool:
@@ -154,11 +234,12 @@ def copy_mp3_metadata(source_path: str, target_path: str) -> bool:
         logger.info("Copied MP3 metadata: %s -> %s", source_path, target_path)
         return True
     except Exception:
-        logger.exception("Failed to copy MP3 metadata: %s -> %s", source_path, target_path)
+        logger.exception(
+            "Failed to copy MP3 metadata: %s -> %s", source_path, target_path
+        )
         return False
-    
-    
-    
+
+
 def append_album_ref(album_name: str, album_ref: str) -> str:
     album_name = (album_name or "").strip()
     album_ref = (album_ref or "").strip()
@@ -172,3 +253,10 @@ def append_album_ref(album_name: str, album_ref: str) -> str:
     if lowered_ref in lowered_album:
         return album_name
     return f"{album_name} [{album_ref}]"
+
+
+def _coerce_year(value: object) -> int | None:
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None

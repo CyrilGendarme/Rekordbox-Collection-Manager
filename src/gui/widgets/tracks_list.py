@@ -1,7 +1,7 @@
 import re
 import tkinter as tk
 from tkinter import Frame, ttk
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.data.models import Track
 from .scrollable_frame import ScrollableFrame
@@ -70,6 +70,9 @@ class TracksList(ttk.Frame):
         filter: Optional[Dict[str, str]] = None,
         on_select: Optional[Callable[[Optional[Track]], None]] = None,
         on_filter_changed: Optional[Callable[[List[Track]], None]] = None,
+        on_cell_edited: Optional[Callable[[Track, str, Any], None]] = None,
+        multiselect: bool = False,
+        editable_columns: Optional[set[str]] = None,
         **kwargs,
     ):
         super().__init__(parent, **kwargs)
@@ -78,11 +81,19 @@ class TracksList(ttk.Frame):
         self._filter: Dict[str, str] = dict(filter) if filter else {}
         self.on_select = on_select
         self.on_filter_changed = on_filter_changed
+        self.on_cell_edited = on_cell_edited
+        self._multiselect = multiselect
+        self._editable_columns = set(editable_columns or set())
 
         self._all_tracks: List[Track] = []
         self._filtered_tracks: List[Track] = []
         self._item_to_track: Dict[str, Track] = {}
+        self._track_to_item: Dict[str, str] = {}
         self.selected_track: Optional[Track] = None
+        self.selected_tracks: List[Track] = []
+        self._active_editor: ttk.Entry | None = None
+        self._active_edit_item: str | None = None
+        self._active_edit_attr: str | None = None
 
         self._create_widgets()
 
@@ -149,9 +160,11 @@ class TracksList(ttk.Frame):
             show="headings",
             height=20,
             on_sort=self._on_sort,
+            selectmode="extended" if self._multiselect else "browse",
         )
         self._tree.pack(fill=tk.BOTH, expand=True)
         self._tree.bind("<<TreeviewSelect>>", self._on_row_selected)
+        self._tree.bind("<Double-1>", self._on_cell_double_click)
 
     # ------------------------------------------------------------------
     # Public API
@@ -184,6 +197,10 @@ class TracksList(ttk.Frame):
         self._filter.clear()
         self._apply_filter_and_search()
 
+    def get_selected_tracks(self) -> List[Track]:
+        """Return the currently selected tracks in display order."""
+        return list(self.selected_tracks)
+
     # ------------------------------------------------------------------
     # Internal display logic
     # ------------------------------------------------------------------
@@ -215,6 +232,7 @@ class TracksList(ttk.Frame):
     def _render(self, tracks: List[Track]) -> None:
         self._tree.clear()
         self._item_to_track.clear()
+        self._track_to_item.clear()
 
         sort_col = self._tree.sort_column
         if sort_col:
@@ -231,6 +249,7 @@ class TracksList(ttk.Frame):
         for track, values in rows:
             item_id = self._tree.insert(values=values)
             self._item_to_track[item_id] = track
+            self._track_to_item[str(track.id)] = item_id
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -244,6 +263,104 @@ class TracksList(ttk.Frame):
 
     def _on_row_selected(self, _event=None) -> None:
         sel = self._tree.get_selection()
-        self.selected_track = self._item_to_track.get(sel[0]) if sel else None
+        self.selected_tracks = [
+            self._item_to_track[item_id]
+            for item_id in sel
+            if item_id in self._item_to_track
+        ]
+        self.selected_track = self.selected_tracks[0] if self.selected_tracks else None
         if self.on_select:
             self.on_select(self.selected_track)
+
+    def _on_cell_double_click(self, event) -> None:
+        if not self._editable_columns:
+            return
+
+        region = self._tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+
+        item_id = self._tree.identify_row(event.y)
+        column_id = self._tree.identify_column(event.x)
+        if not item_id or not column_id:
+            return
+
+        column_index = int(column_id.replace("#", "")) - 1
+        if column_index < 0 or column_index >= len(self._column_defs):
+            return
+
+        attr, _width = self._column_defs[column_index]
+        if attr not in self._editable_columns:
+            return
+
+        bbox = self._tree.bbox(item_id, column_id)
+        if not bbox:
+            return
+
+        self._destroy_editor(commit=False)
+        x, y, width, height = bbox
+        current_track = self._item_to_track.get(item_id)
+        if current_track is None:
+            return
+
+        current_value = _attr_as_str(getattr(current_track, attr, None))
+        editor = ttk.Entry(self._tree)
+        editor.insert(0, current_value)
+        editor.select_range(0, tk.END)
+        editor.place(x=x, y=y, width=width, height=height)
+        editor.focus_set()
+        editor.bind("<Return>", lambda _e: self._commit_editor())
+        editor.bind("<Escape>", lambda _e: self._destroy_editor(commit=False))
+        editor.bind("<FocusOut>", lambda _e: self._commit_editor())
+
+        self._active_editor = editor
+        self._active_edit_item = item_id
+        self._active_edit_attr = attr
+
+    def _commit_editor(self) -> None:
+        if (
+            self._active_editor is None
+            or self._active_edit_item is None
+            or self._active_edit_attr is None
+        ):
+            return
+
+        item_id = self._active_edit_item
+        attr = self._active_edit_attr
+        track = self._item_to_track.get(item_id)
+        if track is None:
+            self._destroy_editor(commit=False)
+            return
+
+        raw_value = self._active_editor.get()
+        coerced_value = self._coerce_attr_value(track, attr, raw_value)
+        setattr(track, attr, coerced_value)
+        if self.on_cell_edited:
+            self.on_cell_edited(track, attr, coerced_value)
+
+        self._tree.update_item(item_id, values=self._row_values(track))
+        self._destroy_editor(commit=False)
+        self._tree.focus_set()
+
+    def _destroy_editor(self, commit: bool) -> None:
+        if commit:
+            self._commit_editor()
+            return
+        if self._active_editor is not None:
+            self._active_editor.destroy()
+        self._active_editor = None
+        self._active_edit_item = None
+        self._active_edit_attr = None
+
+    @staticmethod
+    def _coerce_attr_value(track: Track, attr: str, raw_value: str) -> Any:
+        text = raw_value.strip()
+        current_value = getattr(track, attr, None)
+
+        if attr == "year":
+            return int(text) if text else None
+        if attr == "bpm":
+            return float(text) if text else None
+        if isinstance(current_value, list):
+            return [part.strip() for part in text.split(",") if part.strip()]
+        return text

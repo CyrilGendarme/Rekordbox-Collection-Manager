@@ -12,14 +12,13 @@ from src.core.youtube_download.actions import (
     download_audio_as_mp3,
     extract_year_from_youtube_info,
     fetch_youtube_info,
-    lookup_bandcamp_album,
-    lookup_discogs_metadata,
     remove_playlist_param,
     resolve_downloaded_path,
     save_sidecar_json,
     write_metadata_to_mp3,
 )
-from src.services.audio_metadata_service import write_metadata_to_mp3, append_album_ref
+from src.services.audio_metadata_service import write_metadata_to_mp3
+from src.services import complete_track_metadata
 from src.data import RekordboxDAO
 from src.gui.tab_system import FeatureContext, TabFeature
 from src.gui.widgets import ScrollableFrame
@@ -342,34 +341,17 @@ class YoutubeDownloadFeature(TabFeature):
             return
 
         title, artist, album = metadata
-        source = ""
+        completion = complete_track_metadata(title=title, artist=artist, album=album)
 
-        discogs_data = lookup_discogs_metadata(title=title, artist=artist, album=album)
-        if discogs_data:
-            existing_album = self.album_var.get().strip()
-            album_candidate = existing_album or (discogs_data.get("album") or "")
-            album_with_ref = append_album_ref(
-                album_candidate,
-                str(discogs_data.get("catno") or ""),
-            )
-            if album_with_ref and album_with_ref != existing_album:
-                self.album_var.set(album_with_ref)
+        if completion.album and completion.album != self.album_var.get().strip():
+            self.album_var.set(completion.album)
+        if not self.year_var.get().strip() and completion.year is not None:
+            self.year_var.set(str(completion.year))
+        if not self.label_var.get().strip() and completion.label:
+            self.label_var.set(completion.label)
 
-            if not self.year_var.get().strip() and discogs_data.get("year"):
-                self.year_var.set(str(discogs_data["year"]))
-            if not self.label_var.get().strip() and discogs_data.get("label"):
-                self.label_var.set(str(discogs_data["label"]))
-            source = "Discogs"
-
-        if not self.album_var.get().strip():
-            bandcamp_album = lookup_bandcamp_album(title=title, artist=artist)
-            if bandcamp_album:
-                self.album_var.set(bandcamp_album)
-                if not source:
-                    source = "Bandcamp"
-
-        if source:
-            self.status_var.set(f"Metadata enriched from {source}.")
+        if completion.source:
+            self.status_var.set(f"Metadata enriched from {completion.source}.")
         else:
             messagebox.showwarning(
                 "No enrichment found",

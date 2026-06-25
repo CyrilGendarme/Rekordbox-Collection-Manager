@@ -13,6 +13,7 @@ class SortableTreeview(ttk.Frame):
         show: str = "headings",
         height: int = 15,
         on_sort: Optional[Callable[[str], None]] = None,
+        selectmode: str = "browse",
     ):
         """
         Initialize sortable treeview.
@@ -37,7 +38,7 @@ class SortableTreeview(ttk.Frame):
             columns=list(self.columns.keys()),
             show=show,
             height=height,
-            selectmode="browse",
+            selectmode=selectmode,
         )
 
         # Configure tree column if showing tree
@@ -125,6 +126,31 @@ class SortableTreeview(ttk.Frame):
         if option:
             return self.tree.item(item_id, option)
         return self.tree.item(item_id)
+
+    def update_item(self, item_id: str, **kwargs):
+        """Update a tree item."""
+        self.tree.item(item_id, **kwargs)
+
+    def identify_row(self, y: int) -> str:
+        """Return the row id at the given y coordinate."""
+        return self.tree.identify_row(y)
+
+    def identify_column(self, x: int) -> str:
+        """Return the column id at the given x coordinate."""
+        return self.tree.identify_column(x)
+
+    def identify_region(self, x: int, y: int) -> str:
+        """Return the tree region at the given coordinates."""
+        return self.tree.identify("region", x, y)
+
+    def bbox(self, item_id: str, column: str | None = None):
+        """Return the bounding box for an item/cell."""
+        if column is None:
+            return self.tree.bbox(item_id)
+        return self.tree.bbox(item_id, column)
+
+    def focus_set(self):
+        self.tree.focus_set()
 
     def bind(self, sequence: str, func: Callable):
         """Bind event to treeview."""

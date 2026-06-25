@@ -20,6 +20,8 @@ class TrackExportMetadata:
     title: str | None = None
     album: str | None = None
     record_ref: str | None = None
+    year: int | None = None
+    label: str | None = None
 
 
 @dataclass
@@ -68,6 +70,8 @@ def _write_audio_metadata(path: Path, meta: TrackExportMetadata | None) -> None:
         artist=meta.artist,
         album=meta.album,
         record_ref=meta.record_ref,
+        year=meta.year,
+        label=meta.label,
     )
 
 

@@ -16,6 +16,7 @@ class Track:
     rating: Optional[int] = None  # 0-5 stars
     file_path: Optional[str] = None
     album: Optional[str] = None
+    label: Optional[str] = None
     year: Optional[int] = None
     comment: Optional[str] = None
     length: Optional[int] = None  # Duration in seconds
@@ -58,6 +59,7 @@ class Track:
             file_path=row.FolderPath or row.rb_LocalFolderPath,
             org_folder_path=row.FolderPath,
             album=row.AlbumName,
+            label=getattr(row, "LabelName", None),
             year=row.ReleaseYear,
             comment=row.Commnt,
             length=row.Length / 60.0,

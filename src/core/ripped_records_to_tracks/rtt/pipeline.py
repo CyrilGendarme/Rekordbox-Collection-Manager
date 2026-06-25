@@ -21,6 +21,7 @@ from .segmentation import (
     _bandpass_music_only,
     detect_boundaries_by_silence_target,
 )
+from src.services import complete_track_metadata
 
 @dataclass
 class SplitOutput:
@@ -161,6 +162,35 @@ def _build_track_metadata(
             )
         )
     return metadata
+
+
+def _enrich_track_metadata(
+    track_metadata: List[TrackExportMetadata],
+) -> List[TrackExportMetadata]:
+    enriched: List[TrackExportMetadata] = []
+
+    for meta in track_metadata:
+        if not meta.title or not meta.artist:
+            enriched.append(meta)
+            continue
+
+        completion = complete_track_metadata(
+            title=meta.title,
+            artist=meta.artist,
+            album=meta.album or "",
+        )
+        enriched.append(
+            TrackExportMetadata(
+                artist=meta.artist,
+                title=meta.title,
+                album=completion.album or meta.album,
+                record_ref=meta.record_ref,
+                year=completion.year,
+                label=completion.label or None,
+            )
+        )
+
+    return enriched
 
 
 def _segment_count(seg: SegmentationResult) -> int:
@@ -490,7 +520,9 @@ def split_audio_file(
     )
 
     base_name = build_export_base_name(file_path.stem)
-    track_metadata = _build_track_metadata(seg=seg, export_info=export_info)
+    track_metadata = _enrich_track_metadata(
+        _build_track_metadata(seg=seg, export_info=export_info)
+    )
     export_settings = infer_export_settings(file_path)
     files = export_tracks_to_wav(
         audio=audio,
