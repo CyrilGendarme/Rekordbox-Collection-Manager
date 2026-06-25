@@ -255,6 +255,36 @@ class RekordboxDAO:
         self.db.commit()
         return content
 
+    def set_track_metadata_in_rekordbox(
+        self,
+        track_id: int | str,
+        title: str,
+        artist: str,
+        album: str = "",
+        label: str = "",
+        year: int | None = None,
+        genre: str = "",
+        tags: list[str] | None = None,
+    ) -> None:
+        """Update core Rekordbox fields and tags for one track."""
+        core_payload: dict[str, Any] = {
+            "title": title,
+            "artist": artist,
+        }
+        if album:
+            core_payload["album"] = album
+        if label:
+            core_payload["label"] = label
+        if year is not None:
+            core_payload["year"] = year
+
+        self.update_info_of_track(track_id, **core_payload)
+
+        if genre:
+            self.update_info_of_track(track_id, genre=genre)
+
+        self.set_track_tags(track_id, tags or [])
+
     def update_track_metadata(
         self,
         track_id: int | str,

@@ -217,3 +217,22 @@ def search_bandcamp(query: str, limit: int = 5) -> list[dict]:
                 driver.quit()
             except Exception:
                 pass
+
+
+def lookup_bandcamp_album(title: str, artist: str) -> str:
+    """Resolve a likely album name from first Bandcamp match."""
+    query = f"{artist} - {title}" if artist else title
+    try:
+        results = search_bandcamp(query, limit=3)
+    except Exception:
+        return ""
+
+    if not results:
+        return ""
+
+    first_title = getattr(results[0], "title", "") or ""
+    if " - " in first_title:
+        return first_title.split(" - ", 1)[0].strip()
+    if " — " in first_title:
+        return first_title.split(" — ", 1)[0].strip()
+    return first_title.strip()

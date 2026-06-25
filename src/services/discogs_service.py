@@ -344,3 +344,46 @@ def get_release_tracks_by_record_ref(
     if info is None:
         return []
     return info.tracks
+
+
+def lookup_discogs_metadata(title: str, artist: str, album: str = "") -> dict:
+    """Fetch first Discogs hit and return a compact metadata payload."""
+    try:
+        results = search_releases(
+            artist=artist,
+            track=title,
+            album=album or None,
+            limit=5,
+        )
+    except Exception:
+        return {}
+
+    if not results:
+        return {}
+
+    best = results[0]
+    album_name = album
+    result_title = (getattr(best, "title", "") or "").strip()
+    if " - " in result_title:
+        left, right = result_title.split(" - ", 1)
+        if artist.lower() in left.lower():
+            album_name = right.strip()
+    elif not album_name:
+        album_name = result_title
+
+    year_val = getattr(best, "year", None)
+    try:
+        year_int = int(year_val) if year_val else None
+    except (TypeError, ValueError):
+        year_int = None
+
+    label_val = getattr(best, "label", None)
+    if isinstance(label_val, list):
+        label_val = label_val[0] if label_val else None
+
+    return {
+        "album": album_name,
+        "year": year_int,
+        "label": label_val,
+        "catno": getattr(best, "catno", None),
+    }

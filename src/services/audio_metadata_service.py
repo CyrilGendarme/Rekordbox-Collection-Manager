@@ -6,6 +6,42 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def write_metadata_to_mp3(
+    file_path: str,
+    title: str,
+    artist: str,
+    album: str = "",
+    year: str = "",
+    label: str = "",
+    genre: str = "",
+    track_tags: list[str] | None = None,
+) -> None:
+    """Write YouTube-import metadata to an MP3 using EasyID3."""
+    try:
+        from mutagen.easyid3 import EasyID3
+    except ImportError as exc:
+        raise RuntimeError("mutagen is not installed") from exc
+
+    try:
+        id3_tags = EasyID3(file_path)
+    except Exception:
+        id3_tags = EasyID3()
+
+    id3_tags["title"] = title
+    id3_tags["artist"] = artist
+    if album:
+        id3_tags["album"] = album
+    if year:
+        id3_tags["date"] = year
+    if label:
+        id3_tags["organization"] = label
+    if genre:
+        id3_tags["genre"] = genre
+    if track_tags:
+        id3_tags["grouping"] = ", ".join(track_tags)
+    id3_tags.save(file_path)
+
+
 def write_audio_metadata(
     file_path: str | Path,
     title: str | None = None,
@@ -120,3 +156,19 @@ def copy_mp3_metadata(source_path: str, target_path: str) -> bool:
     except Exception:
         logger.exception("Failed to copy MP3 metadata: %s -> %s", source_path, target_path)
         return False
+    
+    
+    
+def append_album_ref(album_name: str, album_ref: str) -> str:
+    album_name = (album_name or "").strip()
+    album_ref = (album_ref or "").strip()
+    if not album_name:
+        return ""
+    if not album_ref:
+        return album_name
+
+    lowered_album = album_name.lower()
+    lowered_ref = album_ref.lower()
+    if lowered_ref in lowered_album:
+        return album_name
+    return f"{album_name} [{album_ref}]"

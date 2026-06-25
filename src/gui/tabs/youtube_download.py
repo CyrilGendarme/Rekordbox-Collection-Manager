@@ -9,22 +9,17 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from src.core.youtube_download.actions import (
-    OTHER_TAG_CATEGORY,
-    TAG_CATEGORY_ORDER,
-    append_album_ref,
-    category_for_tag,
     download_audio_as_mp3,
     extract_year_from_youtube_info,
     fetch_youtube_info,
-    get_rekordbox_taxonomy,
     lookup_bandcamp_album,
     lookup_discogs_metadata,
     remove_playlist_param,
     resolve_downloaded_path,
     save_sidecar_json,
-    set_track_metadata_in_rekordbox,
     write_metadata_to_mp3,
 )
+from src.services.audio_metadata_service import write_metadata_to_mp3, append_album_ref
 from src.data import RekordboxDAO
 from src.gui.tab_system import FeatureContext, TabFeature
 from src.gui.theme import BG_CARD
@@ -35,6 +30,7 @@ class YoutubeDownloadFeature(TabFeature):
 
     def __init__(self):
         self.root: tk.Tk | None = None
+        self.controller = None
 
         self.selected_file = ""
         self.youtube_info: dict = {}
@@ -64,6 +60,7 @@ class YoutubeDownloadFeature(TabFeature):
 
     def build_main_tab(self, context: FeatureContext) -> Optional[ttk.Frame]:
         self.root = context.root
+        self.controller = context.controller
 
         main_frame = ttk.Frame(context.notebook)
         context.notebook.add(main_frame, text="YouTube Download")
@@ -204,7 +201,10 @@ class YoutubeDownloadFeature(TabFeature):
             self.status_var.set(status)
 
     def _load_rekordbox_taxonomy(self) -> None:
-        self.available_genres, self.available_tags = get_rekordbox_taxonomy()
+        if self.controller is None:
+            self.available_genres, self.available_tags = [], []
+            return
+        self.available_genres, self.available_tags = self.controller.get_rekordbox_taxonomy()
 
     def _build_tag_checkboxes(self) -> None:
         if self.tags_frame is None:
@@ -224,15 +224,31 @@ class YoutubeDownloadFeature(TabFeature):
             ).grid(row=0, column=0, sticky="w", padx=8, pady=6)
             return
 
+        category_order = (
+            list(self.controller.TAG_CATEGORY_ORDER)
+            if self.controller is not None
+            else ["Situation", "Set Basis", "Set Build", "Component"]
+        )
+        other_category = (
+            self.controller.OTHER_TAG_CATEGORY
+            if self.controller is not None
+            else "Other"
+        )
+
         grouped: dict[str, list[str]] = {
-            name: [] for name in (TAG_CATEGORY_ORDER + [OTHER_TAG_CATEGORY])
+            name: [] for name in (category_order + [other_category])
         }
         for tag_name in self.available_tags:
-            grouped[category_for_tag(tag_name)].append(tag_name)
+            category = (
+                self.controller.category_for_tag(tag_name)
+                if self.controller is not None
+                else other_category
+            )
+            grouped[category].append(tag_name)
 
-        categories = list(TAG_CATEGORY_ORDER)
-        if grouped[OTHER_TAG_CATEGORY]:
-            categories.append(OTHER_TAG_CATEGORY)
+        categories = list(category_order)
+        if grouped[other_category]:
+            categories.append(other_category)
 
         for index, category in enumerate(categories):
             row = index // 2
@@ -505,16 +521,16 @@ class YoutubeDownloadFeature(TabFeature):
             with RekordboxDAO() as dao:
                 track = dao.add_audio_file_as_track(downloaded_path)
 
-            set_track_metadata_in_rekordbox(
-                track_id=track.ID,
-                title=title,
-                artist=artist,
-                album=album,
-                label=label_text,
-                year=year,
-                genre=genre_text,
-                tags=selected_tags,
-            )
+                dao.set_track_metadata_in_rekordbox(
+                    track_id=track.ID,
+                    title=title,
+                    artist=artist,
+                    album=album,
+                    label=label_text,
+                    year=year,
+                    genre=genre_text,
+                    tags=selected_tags,
+                )
 
             with RekordboxDAO() as dao:
                 actual_tags = dao.get_track_tags(track.ID)

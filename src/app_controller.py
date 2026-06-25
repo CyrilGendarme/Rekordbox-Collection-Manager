@@ -1,5 +1,6 @@
 import logging
 import threading
+import unicodedata
 from typing import Callable, Dict, Iterable, List, Optional
 from pathlib import Path
 
@@ -37,6 +38,60 @@ class AppController:
         # Shared storage for features/tabs.
         self.track_store: Dict[str, List[Track]] = {"library": []}
         self.playlist_store: Dict[str, List[str]] = {}
+        self.genre_store: List[str] = []
+        self.tag_store: List[str] = []
+
+        self.TAG_CATEGORY_ORDER = ["Situation", "Set Basis", "Set Build", "Component"]
+        self.OTHER_TAG_CATEGORY = "Other"
+        self.TAG_CATEGORY_TAGS: Dict[str, set[str]] = {
+            "Situation": {
+                "Morning",
+                "Lounge",
+                "Teuf",
+                "Hard Groove",
+                "Bar Background",
+                "Commercial",
+            },
+            "Set Basis": {
+                "Groovy",
+                "French Touch",
+                "Belgian Touch",
+                "UK Touch",
+                "Latin Touch",
+                "Porn",
+                "Wooble",
+                "Goth",
+                "Tropical",
+            },
+            "Set Build": {
+                "Build Up",
+                "Peak Time",
+                "Build Down",
+                "Background",
+                "Styles Transitions",
+                "Set Opener",
+                "Set Closer",
+                "Vocal",
+                "Copyright Ok",
+                "Vinyl Rip",
+                "Not Tagged",
+            },
+            "Component": {
+                "Mdma",
+                "Dark",
+                "Chill",
+                "Acid",
+                "Minimal",
+                "Dub",
+                "Progressive",
+                "Organic",
+                "Good Message",
+                "Nostalgia",
+                "Hypnotic",
+                "Retro",
+                "Classic",
+            },
+        }
         self._status_callback: Optional[Callable[[str], None]] = None
         self._collection_loaded_callbacks: List[Callable[[], None]] = []
 
@@ -99,9 +154,13 @@ class AppController:
 
                 tracks = dao.load_tracks_from_collection()
                 playlists = dao.load_playlists_from_collection()
+                genres = dao.get_all_genres_from_collection()
+                tags = dao.get_all_tags_from_collection()
 
                 self.track_store["library"] = tracks
                 self.playlist_store["library"] = playlists
+                self.genre_store = genres
+                self.tag_store = tags
                 self.set_status(
                     f"Loaded {len(tracks):,} tracks and {len(playlists):,} playlists"
                 )
@@ -139,6 +198,38 @@ class AppController:
                 callback(data)
             except Exception:
                 self.logger.exception("Collection loaded callback failed")
+
+    def get_rekordbox_taxonomy(self) -> tuple[list[str], list[str]]:
+        if self.genre_store or self.tag_store:
+            return list(self.genre_store), list(self.tag_store)
+
+        try:
+            with RekordboxDAO() as dao:
+                genres = dao.get_all_genres_from_collection()
+                tags = dao.get_all_tags_from_collection()
+            self.genre_store = genres
+            self.tag_store = tags
+            return genres, tags
+        except Exception:
+            return [], []
+
+    @staticmethod
+    def normalize_tag_name(tag_name: str) -> str:
+        raw = "" if tag_name is None else str(tag_name)
+        deaccented = "".join(
+            c
+            for c in unicodedata.normalize("NFKD", raw)
+            if not unicodedata.combining(c)
+        )
+        return " ".join(deaccented.lower().replace("_", " ").split())
+
+    def category_for_tag(self, tag_name: str) -> str:
+        normalized = self.normalize_tag_name(tag_name)
+        for category, names in self.TAG_CATEGORY_TAGS.items():
+            normalized_names = {self.normalize_tag_name(name) for name in names}
+            if normalized in normalized_names:
+                return category
+        return self.OTHER_TAG_CATEGORY
 
     # === APPLICATION LIFECYCLE ===
 
