@@ -42,6 +42,7 @@ class RekordboxDAO:
     ):
         # Prevent re-initialization on every call
         if getattr(self, "_initialized", False):
+            self._ensure_db_session()
             return
 
         self._suppress_non_blocking_warnings()
@@ -56,9 +57,16 @@ class RekordboxDAO:
         self._initialized = True
 
     def close(self) -> None:
-        self.db.close()
+        if getattr(self.db, "session", None) is not None:
+            self.db.close()
+
+    def _ensure_db_session(self) -> None:
+        """Reopen DB session when singleton instance has previously been closed."""
+        if getattr(self.db, "session", None) is None:
+            self.db.open()
 
     def __enter__(self) -> "RekordboxDAO":
+        self._ensure_db_session()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

@@ -73,3 +73,4 @@ Desktop.ini
 *.tmp
 
 output_tracks/
+*selenium_chrome_profile/

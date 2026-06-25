@@ -22,7 +22,7 @@ from src.core.youtube_download.actions import (
 from src.services.audio_metadata_service import write_metadata_to_mp3, append_album_ref
 from src.data import RekordboxDAO
 from src.gui.tab_system import FeatureContext, TabFeature
-from src.gui.theme import BG_CARD
+from src.gui.widgets import ScrollableFrame
 
 
 class YoutubeDownloadFeature(TabFeature):
@@ -73,95 +73,109 @@ class YoutubeDownloadFeature(TabFeature):
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(0, weight=1)
 
-        wrapper = ttk.Frame(parent, padding=12)
+        scrollable = ScrollableFrame(parent)
+        scrollable.grid(row=0, column=0, sticky="nsew")
+        scrollable.get_frame().columnconfigure(0, weight=1)
+
+        wrapper = ttk.Frame(scrollable.get_frame())
         wrapper.grid(row=0, column=0, sticky="nsew")
         wrapper.columnconfigure(1, weight=1)
 
         ttk.Label(wrapper, text="YouTube URL (required):").grid(
-            row=0, column=0, sticky="w", padx=8, pady=(8, 4)
+            row=0, column=0, sticky="w"
         )
         ttk.Entry(wrapper, textvariable=self.url_var).grid(
-            row=0, column=1, sticky="ew", padx=8, pady=(8, 4)
+            row=0, column=1, sticky="ew"
         )
-        ttk.Button(wrapper, text="Load YouTube data", command=self.load_youtube_data).grid(
-            row=0, column=2, sticky="e", padx=8, pady=(8, 4)
-        )
+        ttk.Button(
+            wrapper, text="Load YouTube data", command=self.load_youtube_data
+        ).grid(row=0, column=2, sticky="e")
 
         ttk.Label(wrapper, text="Download folder:").grid(
-            row=1, column=0, sticky="w", padx=8, pady=4
+            row=1, column=0, sticky="w"
         )
         ttk.Entry(wrapper, textvariable=self.youtube_dir_var).grid(
-            row=1, column=1, sticky="ew", padx=8, pady=4
+            row=1, column=1, sticky="ew"
         )
-        ttk.Button(wrapper, text="Choose folder", command=self._choose_youtube_dir).grid(
-            row=1, column=2, sticky="e", padx=8, pady=4
-        )
+        ttk.Button(
+            wrapper, text="Choose folder", command=self._choose_youtube_dir
+        ).grid(row=1, column=2, sticky="e")
 
         ttk.Label(wrapper, text="Loaded file:").grid(
-            row=2, column=0, sticky="w", padx=8, pady=4
+            row=2, column=0, sticky="w"
         )
         ttk.Label(wrapper, textvariable=self.file_var, anchor="w").grid(
-            row=2, column=1, sticky="ew", padx=8, pady=4
+            row=2, column=1, sticky="ew"
         )
         ttk.Button(wrapper, text="Choose file", command=self.select_file).grid(
-            row=2, column=2, sticky="e", padx=8, pady=4
+            row=2, column=2, sticky="e"
         )
 
         ttk.Label(wrapper, text="YouTube title:").grid(
-            row=3, column=0, sticky="w", padx=8, pady=(14, 4)
+            row=3, column=0, sticky="w"
         )
         ttk.Entry(wrapper, textvariable=self.video_title_var, state="readonly").grid(
-            row=3, column=1, columnspan=2, sticky="ew", padx=8, pady=(14, 4)
+            row=3, column=1, columnspan=2, sticky="ew"
         )
 
         ttk.Label(wrapper, text="Track title:").grid(
-            row=4, column=0, sticky="w", padx=8, pady=4
+            row=4, column=0, sticky="w"
         )
         ttk.Entry(wrapper, textvariable=self.track_title_var).grid(
-            row=4, column=1, columnspan=2, sticky="ew", padx=8, pady=4
+            row=4, column=1, columnspan=2, sticky="ew"
         )
 
         ttk.Label(wrapper, text="Artist name:").grid(
-            row=5, column=0, sticky="w", padx=8, pady=4
+            row=5, column=0, sticky="w"
         )
         ttk.Entry(wrapper, textvariable=self.artist_var).grid(
-            row=5, column=1, columnspan=2, sticky="ew", padx=8, pady=4
+            row=5, column=1, columnspan=2, sticky="ew"
         )
 
         ttk.Label(wrapper, text="Album name:").grid(
-            row=6, column=0, sticky="w", padx=8, pady=4
+            row=6, column=0, sticky="w"
         )
         ttk.Entry(wrapper, textvariable=self.album_var).grid(
-            row=6, column=1, columnspan=2, sticky="ew", padx=8, pady=4
+            row=6, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Year:").grid(row=7, column=0, sticky="w", padx=8, pady=4)
+        ttk.Label(wrapper, text="Year:").grid(
+            row=7, column=0, sticky="w"
+        )
         ttk.Entry(wrapper, textvariable=self.year_var).grid(
-            row=7, column=1, columnspan=2, sticky="ew", padx=8, pady=4
+            row=7, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Label:").grid(row=8, column=0, sticky="w", padx=8, pady=4)
+        ttk.Label(wrapper, text="Label:").grid(
+            row=8, column=0, sticky="w"
+        )
         ttk.Entry(wrapper, textvariable=self.label_var).grid(
-            row=8, column=1, columnspan=2, sticky="ew", padx=8, pady=4
+            row=8, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Genre:").grid(row=9, column=0, sticky="w", padx=8, pady=4)
+        ttk.Label(wrapper, text="Genre:").grid(
+            row=9, column=0, sticky="w"
+        )
         self.genre_combobox = ttk.Combobox(
             wrapper,
             textvariable=self.genre_var,
             values=self.available_genres,
             state="readonly" if self.available_genres else "normal",
         )
-        self.genre_combobox.grid(row=9, column=1, columnspan=2, sticky="ew", padx=8, pady=4)
+        self.genre_combobox.grid(
+            row=9, column=1, columnspan=2, sticky="ew"
+        )
 
         self.tags_frame = ttk.LabelFrame(wrapper, text="Tags from Rekordbox")
-        self.tags_frame.grid(row=10, column=0, columnspan=3, sticky="ew", padx=8, pady=8)
-        self.tags_frame.columnconfigure(0, weight=1)
-        self.tags_frame.columnconfigure(1, weight=1)
+        self.tags_frame.grid(
+            row=10, column=0, columnspan=3, sticky="ew"
+        )
+        for column in range(5):
+            self.tags_frame.columnconfigure(column, weight=1)
         self._build_tag_checkboxes()
 
         btn_row = ttk.Frame(wrapper)
-        btn_row.grid(row=11, column=0, columnspan=3, sticky="ew", padx=8, pady=(10, 2))
+        btn_row.grid(row=11, column=0, columnspan=3, sticky="ew")
         btn_row.columnconfigure(0, weight=1)
         btn_row.columnconfigure(1, weight=1)
         btn_row.columnconfigure(2, weight=1)
@@ -188,12 +202,12 @@ class YoutubeDownloadFeature(TabFeature):
             "4) Enrich metadata  5) Download + Add to Rekordbox"
         )
         ttk.Label(wrapper, text=help_text, anchor="w", style="Dim.TLabel").grid(
-            row=12, column=0, columnspan=3, sticky="ew", padx=8, pady=(2, 6)
+            row=12, column=0, columnspan=3, sticky="ew"
         )
 
-        ttk.Label(wrapper, textvariable=self.status_var, style="Dim.TLabel", anchor="w").grid(
-            row=13, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 8)
-        )
+        ttk.Label(
+            wrapper, textvariable=self.status_var, style="Dim.TLabel", anchor="w"
+        ).grid(row=13, column=0, columnspan=3, sticky="ew")
 
     def _set_busy(self, value: bool, status: str = "") -> None:
         self._is_busy = value
@@ -204,7 +218,9 @@ class YoutubeDownloadFeature(TabFeature):
         if self.controller is None:
             self.available_genres, self.available_tags = [], []
             return
-        self.available_genres, self.available_tags = self.controller.get_rekordbox_taxonomy()
+        self.available_genres, self.available_tags = (
+            self.controller.get_rekordbox_taxonomy()
+        )
 
     def _build_tag_checkboxes(self) -> None:
         if self.tags_frame is None:
@@ -221,7 +237,7 @@ class YoutubeDownloadFeature(TabFeature):
                 text="No tags found in Rekordbox collection.",
                 anchor="w",
                 style="Dim.TLabel",
-            ).grid(row=0, column=0, sticky="w", padx=8, pady=6)
+            ).grid(row=0, column=0, sticky="w")
             return
 
         category_order = (
@@ -246,13 +262,11 @@ class YoutubeDownloadFeature(TabFeature):
             )
             grouped[category].append(tag_name)
 
-        categories = list(category_order)
-        if grouped[other_category]:
-            categories.append(other_category)
+        categories = list(category_order) + [other_category]
 
         for index, category in enumerate(categories):
-            row = index // 2
-            column = index % 2
+            row = 0
+            column = index
             self._create_category_tag_panel(category, row, column)
 
         for category in categories:
@@ -261,7 +275,7 @@ class YoutubeDownloadFeature(TabFeature):
                 var = tk.BooleanVar(value=False)
                 self.tag_vars[tag_name] = var
                 ttk.Checkbutton(host, text=tag_name, variable=var).grid(
-                    row=idx, column=0, sticky="w", padx=8, pady=2
+                    row=idx, column=0, sticky="w"
                 )
 
     def _create_category_tag_panel(self, category: str, row: int, column: int) -> None:
@@ -269,36 +283,17 @@ class YoutubeDownloadFeature(TabFeature):
             return
 
         wrapper = ttk.Frame(self.tags_frame)
-        wrapper.grid(row=row, column=column, sticky="nsew", padx=8, pady=6)
+        wrapper.grid(row=row, column=column, sticky="nsew")
         wrapper.columnconfigure(0, weight=1)
         wrapper.rowconfigure(1, weight=1)
 
         ttk.Label(wrapper, text=category, style="Accent.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 4)
+            row=0, column=0, sticky="w"
         )
 
-        list_wrapper = ttk.Frame(wrapper)
-        list_wrapper.grid(row=1, column=0, sticky="nsew")
-        list_wrapper.columnconfigure(0, weight=1)
-        list_wrapper.rowconfigure(0, weight=1)
-
-        canvas = tk.Canvas(
-            list_wrapper,
-            height=110,
-            borderwidth=0,
-            highlightthickness=0,
-            bg=BG_CARD,
-        )
-        scrollbar = ttk.Scrollbar(list_wrapper, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.grid(row=0, column=0, sticky="nsew")
-        scrollbar.grid(row=0, column=1, sticky="ns")
-
-        inner = ttk.Frame(canvas)
-        window = canvas.create_window((0, 0), window=inner, anchor="nw")
-
-        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
+        inner = ttk.Frame(wrapper)
+        inner.grid(row=1, column=0, sticky="nsew")
+        inner.columnconfigure(0, weight=1)
 
         self.tag_category_frames[category] = inner
 
@@ -503,7 +498,9 @@ class YoutubeDownloadFeature(TabFeature):
             )
 
             if not os.path.exists(downloaded_path):
-                raise RuntimeError("Audio download did not return a valid local file path.")
+                raise RuntimeError(
+                    "Audio download did not return a valid local file path."
+                )
 
             write_metadata_to_mp3(
                 downloaded_path,
@@ -516,7 +513,9 @@ class YoutubeDownloadFeature(TabFeature):
                 track_tags=selected_tags,
             )
 
-            year = self._safe_int(year_text) or extract_year_from_youtube_info(self.youtube_info)
+            year = self._safe_int(year_text) or extract_year_from_youtube_info(
+                self.youtube_info
+            )
 
             with RekordboxDAO() as dao:
                 track = dao.add_audio_file_as_track(downloaded_path)
@@ -542,7 +541,9 @@ class YoutubeDownloadFeature(TabFeature):
         except Exception as exc:
             self.root.after(0, lambda: self._on_download_failure(str(exc)))
 
-    def _on_download_success(self, downloaded_path: str, actual_tags: list[str]) -> None:
+    def _on_download_success(
+        self, downloaded_path: str, actual_tags: list[str]
+    ) -> None:
         self.selected_file = downloaded_path
         self.file_var.set(downloaded_path)
         self._set_selected_tags(actual_tags)
@@ -559,7 +560,9 @@ class YoutubeDownloadFeature(TabFeature):
         self._set_busy(False, "Download/import failed.")
         self._show_error("Download or import failed", details)
 
-    def _validate_metadata_inputs(self, require_album: bool = True) -> Optional[tuple[str, str, str]]:
+    def _validate_metadata_inputs(
+        self, require_album: bool = True
+    ) -> Optional[tuple[str, str, str]]:
         title = self.track_title_var.get().strip()
         artist = self.artist_var.get().strip()
         album = self.album_var.get().strip()
