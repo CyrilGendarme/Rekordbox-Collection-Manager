@@ -16,3 +16,4 @@ mutagen
 pydub
 pydantic
 pydantic-settings
+yt-dlp

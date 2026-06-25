@@ -11,6 +11,7 @@ from .gui.tabs.memory_cues_tab import MemoryCuesFeature
 from .gui.tabs.ripped_records_to_tracks_tab import RippedRecordsToTracksFeature
 from .gui.tabs.samples_magnifier import SamplesMagnifierFeature
 from .gui.tabs.tracks_info_completer_tab import TracksInfoCompleterFeature
+from .gui.tabs.youtube_download import YoutubeDownloadFeature
 
 
 class AppController:
@@ -56,6 +57,7 @@ class AppController:
             RippedRecordsToTracksFeature(),
             SamplesMagnifierFeature(),
             MemoryCuesFeature(),
+            YoutubeDownloadFeature(),
         ]
         self.window.register_features(self.features, controller=self)
 
