@@ -38,6 +38,28 @@ class Track:
         """Return formatted track name for display."""
         return f"{self.artist} - {self.name}"
 
+    @staticmethod
+    def _resolve_file_path(row: DjmdContent) -> Optional[str]:
+        candidates = [
+            getattr(row, "OrgFolderPath", None),
+            getattr(row, "FolderPath", None),
+            getattr(row, "rb_LocalFolderPath", None),
+        ]
+
+        for candidate in candidates:
+            path = str(candidate or "").strip()
+            if not path:
+                continue
+            normalized = path.replace("\\", "/")
+
+            # Skip Rekordbox internal content mount paths when a real local path exists.
+            if normalized.startswith("/contents_"):
+                continue
+            return path
+
+        fallback = str(getattr(row, "OrgFolderPath", "") or "").strip()
+        return fallback or None
+
     @classmethod
     def from_djmdContent(cls, row: DjmdContent) -> "Track":
         """
@@ -56,8 +78,8 @@ class Track:
             genre=row.GenreName,
             bpm=bpm / 100.0,
             rating=row.Rating,
-            file_path=row.FolderPath or row.rb_LocalFolderPath,
-            org_folder_path=row.FolderPath,
+            file_path=cls._resolve_file_path(row),
+            org_folder_path=getattr(row, "OrgFolderPath", None) or row.FolderPath,
             album=row.AlbumName,
             label=getattr(row, "LabelName", None),
             year=row.ReleaseYear,

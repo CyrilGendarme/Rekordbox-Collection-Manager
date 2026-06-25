@@ -22,7 +22,12 @@ class _MissingMasterPlaylistsFilter(logging.Filter):
     """Filter out the known non-blocking missing masterPlaylists warning."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        return "No masterPlaylists6.xml found" not in record.getMessage()
+        message = record.getMessage()
+        if "No masterPlaylists6.xml found" in message:
+            return False
+        if "not found in masterPlaylists6.xml" in message and "Playlist" in message:
+            return False
+        return True
 
 
 class RekordboxDAO:

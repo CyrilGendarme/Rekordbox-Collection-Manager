@@ -9,7 +9,7 @@ from src.services.audio_metadata_service import write_audio_metadata
 logger = logging.getLogger(__name__)
 
 
-def update_mp3_tags(
+def update_local_audio_tags(
     file_path: str,
     title: Optional[str] = None,
     artist: Optional[str] = None,
@@ -20,7 +20,7 @@ def update_mp3_tags(
     bpm: Optional[float] = None,
 ) -> bool:
     """
-    Write ID3 tags to an MP3 file using mutagen.
+    Write metadata to a local audio file using mutagen.
 
     Returns True on success, False if the file cannot be updated
     (wrong format, missing file, etc.).
@@ -28,10 +28,6 @@ def update_mp3_tags(
     path = Path(file_path)
     if not path.is_file():
         logger.warning("File not found, skipping tag update: %s", file_path)
-        return False
-
-    if path.suffix.lower() != ".mp3":
-        logger.debug("Non-MP3 file, skipping tag update: %s", file_path)
         return False
 
     ok = write_audio_metadata(
@@ -45,7 +41,7 @@ def update_mp3_tags(
         bpm=bpm,
     )
     if ok:
-        logger.info("ID3 tags updated: %s", file_path)
+        logger.info("Audio metadata updated: %s", file_path)
     return ok
 
 
@@ -79,7 +75,7 @@ def update_track_rekordbox_metadata(
 
                 track = track_by_id.get(str(track_id))
                 if track and track.file_path:
-                    ok = update_mp3_tags(
+                    ok = update_local_audio_tags(
                         track.file_path,
                         title=name or None,
                         artist=artist or None,

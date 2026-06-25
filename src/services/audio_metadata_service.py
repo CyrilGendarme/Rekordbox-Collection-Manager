@@ -122,58 +122,139 @@ def write_audio_metadata(
     genre: str | None = None,
     bpm: float | int | str | None = None,
 ) -> bool:
-    """Write common metadata tags to MP3 or WAV files using mutagen."""
+    """Write common metadata tags to common audio formats using mutagen."""
     path = Path(file_path)
     if not path.is_file():
         logger.warning("File not found, skipping metadata update: %s", path)
         return False
 
     suffix = path.suffix.lower()
-    if suffix not in {".mp3", ".wav"}:
+    if suffix not in {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".mp4"}:
         logger.debug("Unsupported file format for metadata update: %s", path)
         return False
 
     try:
         from mutagen.id3 import ID3, TALB, TBPM, TCON, TDRC, TIT2, TPE1, TPUB, TXXX
+        from mutagen.flac import FLAC
+        from mutagen.mp4 import MP4, MP4FreeForm
         from mutagen.mp3 import MP3
+        from mutagen.oggvorbis import OggVorbis
         from mutagen.wave import WAVE
     except ImportError:
         logger.error("mutagen is not installed; cannot update audio metadata")
         return False
 
     try:
+        if suffix in {".mp3", ".wav"}:
+            if suffix == ".mp3":
+                audio_file = MP3(str(path))
+                if audio_file.tags is None:
+                    audio_file.tags = ID3()
+            else:
+                audio_file = WAVE(str(path))
+                if audio_file.tags is None:
+                    audio_file.add_tags()
+
+            if title is not None:
+                audio_file.tags["TIT2"] = TIT2(encoding=3, text=[title])
+            if artist is not None:
+                audio_file.tags["TPE1"] = TPE1(encoding=3, text=[artist])
+            if album is not None:
+                audio_file.tags["TALB"] = TALB(encoding=3, text=[album])
+            if year not in (None, ""):
+                audio_file.tags["TDRC"] = TDRC(encoding=3, text=[str(year)])
+            if label is not None:
+                audio_file.tags["TPUB"] = TPUB(encoding=3, text=[label])
+            if genre is not None:
+                audio_file.tags["TCON"] = TCON(encoding=3, text=[genre])
+            if bpm not in (None, ""):
+                audio_file.tags["TBPM"] = TBPM(encoding=3, text=[str(bpm)])
+            if record_ref is not None:
+                audio_file.tags["TXXX:record_ref"] = TXXX(
+                    encoding=3,
+                    desc="record_ref",
+                    text=[record_ref],
+                )
+
+            audio_file.save()
+            return True
+
+        if suffix == ".flac":
+            audio_file = FLAC(str(path))
+            if title is not None:
+                audio_file["title"] = [title]
+            if artist is not None:
+                audio_file["artist"] = [artist]
+            if album is not None:
+                audio_file["album"] = [album]
+            if year not in (None, ""):
+                audio_file["date"] = [str(year)]
+            if label is not None:
+                audio_file["label"] = [label]
+            if genre is not None:
+                audio_file["genre"] = [genre]
+            if bpm not in (None, ""):
+                audio_file["bpm"] = [str(bpm)]
+            if record_ref is not None:
+                audio_file["record_ref"] = [record_ref]
+            audio_file.save()
+            return True
+
+        if suffix == ".ogg":
+            audio_file = OggVorbis(str(path))
+            if title is not None:
+                audio_file["title"] = [title]
+            if artist is not None:
+                audio_file["artist"] = [artist]
+            if album is not None:
+                audio_file["album"] = [album]
+            if year not in (None, ""):
+                audio_file["date"] = [str(year)]
+            if label is not None:
+                audio_file["label"] = [label]
+            if genre is not None:
+                audio_file["genre"] = [genre]
+            if bpm not in (None, ""):
+                audio_file["bpm"] = [str(bpm)]
+            if record_ref is not None:
+                audio_file["record_ref"] = [record_ref]
+            audio_file.save()
+            return True
+
+        if suffix in {".m4a", ".mp4"}:
+            audio_file = MP4(str(path))
+            if title is not None:
+                audio_file["\xa9nam"] = [title]
+            if artist is not None:
+                audio_file["\xa9ART"] = [artist]
+            if album is not None:
+                audio_file["\xa9alb"] = [album]
+            if year not in (None, ""):
+                audio_file["\xa9day"] = [str(year)]
+            if genre is not None:
+                audio_file["\xa9gen"] = [genre]
+            if bpm not in (None, ""):
+                try:
+                    audio_file["tmpo"] = [int(round(float(bpm)))]
+                except (TypeError, ValueError):
+                    pass
+            if label is not None:
+                audio_file["----:com.apple.iTunes:LABEL"] = [
+                    MP4FreeForm(str(label).encode("utf-8"))
+                ]
+            if record_ref is not None:
+                audio_file["----:com.apple.iTunes:RECORD_REF"] = [
+                    MP4FreeForm(str(record_ref).encode("utf-8"))
+                ]
+            audio_file.save()
+            return True
+
         if suffix == ".mp3":
             audio_file = MP3(str(path))
             if audio_file.tags is None:
                 audio_file.tags = ID3()
-        else:
-            audio_file = WAVE(str(path))
-            if audio_file.tags is None:
-                audio_file.add_tags()
 
-        if title is not None:
-            audio_file.tags["TIT2"] = TIT2(encoding=3, text=[title])
-        if artist is not None:
-            audio_file.tags["TPE1"] = TPE1(encoding=3, text=[artist])
-        if album is not None:
-            audio_file.tags["TALB"] = TALB(encoding=3, text=[album])
-        if year not in (None, ""):
-            audio_file.tags["TDRC"] = TDRC(encoding=3, text=[str(year)])
-        if label is not None:
-            audio_file.tags["TPUB"] = TPUB(encoding=3, text=[label])
-        if genre is not None:
-            audio_file.tags["TCON"] = TCON(encoding=3, text=[genre])
-        if bpm not in (None, ""):
-            audio_file.tags["TBPM"] = TBPM(encoding=3, text=[str(bpm)])
-        if record_ref is not None:
-            audio_file.tags["TXXX:record_ref"] = TXXX(
-                encoding=3,
-                desc="record_ref",
-                text=[record_ref],
-            )
-
-        audio_file.save()
-        return True
+        return False
     except Exception:
         logger.exception("Failed to update audio metadata for: %s", path)
         return False
