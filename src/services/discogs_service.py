@@ -20,7 +20,7 @@ import re
 import httpx
 
 from src.user_config import settings
-from .discogs_models import (
+from .models import (
     DiscogsReleaseInfo,
     DiscogsReleaseTrack,
     DiscogsResult,
