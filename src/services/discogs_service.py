@@ -13,9 +13,10 @@ Authentication priority:
 Get a personal token at: https://www.discogs.com/settings/developers
 """
 
-from typing import List, Optional
 import logging
 import re
+import time
+from typing import List, Optional
 
 import httpx
 
@@ -36,6 +37,44 @@ _HEADERS = {
 }
 _CATNO_NORMALIZE_RE = re.compile(r"[^A-Z0-9]")
 _SIDE_RE = re.compile(r"^\s*([A-D])")
+
+
+def _get_with_429_backoff(
+    url: str,
+    *,
+    params: dict,
+    timeout: float,
+    max_retries: int = 12,
+    initial_wait: float = 1.0,
+    max_wait: float = 120.0,
+) -> httpx.Response:
+    """GET a Discogs endpoint and wait progressively when the API rate-limits us."""
+    wait_seconds = initial_wait
+    for attempt in range(max_retries + 1):
+        resp = httpx.get(url, params=params, headers=_HEADERS, timeout=timeout)
+        if resp.status_code != 429:
+            resp.raise_for_status()
+            return resp
+
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after is not None:
+            try:
+                wait_seconds = max(wait_seconds, float(retry_after))
+            except ValueError:
+                pass
+
+        if attempt >= max_retries:
+            resp.raise_for_status()
+
+        logger.warning(
+            "Discogs rate limit hit for %s (attempt %d/%d); sleeping %.1fs",
+            url,
+            attempt + 1,
+            max_retries + 1,
+            wait_seconds,
+        )
+        time.sleep(wait_seconds)
+        wait_seconds = min(wait_seconds * 2, max_wait)
 
 
 def _auth_params() -> dict:
@@ -76,35 +115,32 @@ def _search_raw(params: dict, limit: int) -> list:
         **_auth_params(),
         **params,
     }
-    resp = httpx.get(
-        f"{_BASE}/database/search", params=query, headers=_HEADERS, timeout=15
+    resp = _get_with_429_backoff(
+        f"{_BASE}/database/search",
+        params=query,
+        timeout=15,
     )
-    resp.raise_for_status()
     return resp.json().get("results", [])[:limit]
 
 
 def _fetch_release(release_id: int) -> dict:
     """Fetch full release detail from /releases/{id}."""
-    resp = httpx.get(
+    resp = _get_with_429_backoff(
         f"{_BASE}/releases/{release_id}",
         params=_auth_params(),
-        headers=_HEADERS,
         timeout=15,
     )
-    resp.raise_for_status()
     return resp.json()
 
 
 def _fetch_price_stats(release_id: int) -> Optional[PriceStats]:
     """Fetch num_for_sale and lowest_price from /marketplace/stats/{id}."""
     try:
-        resp = httpx.get(
+        resp = _get_with_429_backoff(
             f"{_BASE}/marketplace/stats/{release_id}",
             params={**_auth_params(), "curr_abbr": "EUR"},
-            headers=_HEADERS,
             timeout=10,
         )
-        resp.raise_for_status()
         data: dict = resp.json()
     except Exception as exc:
         logger.warning("Marketplace stats unavailable for %s: %s", release_id, exc)
