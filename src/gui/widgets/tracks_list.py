@@ -233,6 +233,10 @@ class TracksList(ttk.Frame):
         self._tree.clear()
         self._item_to_track.clear()
         self._track_to_item.clear()
+        # The tree rows are rebuilt from scratch, so any previous selection may
+        # point to stale/non-visible items.
+        self.selected_track = None
+        self.selected_tracks = []
 
         sort_col = self._tree.sort_column
         if sort_col:
@@ -250,6 +254,9 @@ class TracksList(ttk.Frame):
             item_id = self._tree.insert(values=values)
             self._item_to_track[item_id] = track
             self._track_to_item[str(track.id)] = item_id
+
+        if self.on_select:
+            self.on_select(None)
 
     # ------------------------------------------------------------------
     # Event handlers

@@ -10,6 +10,7 @@ from src.core.tracks_info_completer.helpers import standardize_name
 from src.core.tracks_info_completer.actions import update_track_rekordbox_metadata
 from src.services import complete_track_metadata
 
+
 class TracksInfoCompleterFeature(ConfigSubtabFeature):
     """Tracks info completer feature."""
 
@@ -28,6 +29,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         )
 
         self._edited_values: dict = {}
+        self._original_values: dict = {}
         self._original_names: dict = {}
 
     # ------------------------------------------------------------------
@@ -124,20 +126,32 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
     def on_filter_changed(self, tracks: List[Track]) -> None:
         self.filtered_tracks = list(tracks)
-        # Snapshot original names for Standardize
-        self._original_names = {str(t.id): t.name or "" for t in tracks}
-        self._edited_values = {
-            str(t.id): {
-                "name": t.name or "",
-                "artist": t.artist or "",
-                "album": t.album or "",
-                "year": t.year,
-                "label": t.label or "",
-                "genre": t.genre or "",
-                "bpm": t.bpm,
-            }
-            for t in tracks
-        }
+        # Snapshot original names for Standardize.
+        # Keep already-known originals so validation remains dirty-aware across
+        # search/filter refreshes.
+        for track in tracks:
+            track_id = str(track.id)
+            if track_id not in self._original_names:
+                self._original_names[track_id] = track.name or ""
+            if track_id not in self._original_values:
+                self._original_values[track_id] = {
+                    "name": track.name or "",
+                    "artist": track.artist or "",
+                    "album": track.album or "",
+                    "year": track.year,
+                    "label": track.label or "",
+                    "genre": track.genre or "",
+                    "bpm": track.bpm,
+                }
+            self._edited_values.setdefault(track_id, {
+                "name": track.name or "",
+                "artist": track.artist or "",
+                "album": track.album or "",
+                "year": track.year,
+                "label": track.label or "",
+                "genre": track.genre or "",
+                "bpm": track.bpm,
+            })
 
     def _on_track_selected(self, track: Optional[Track]) -> None:
         self.selected_track = track
@@ -157,7 +171,8 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
     def _on_standardize(self) -> None:
         """Apply standardize_name to every track and refresh the list."""
-        target_tracks = self._get_target_tracks()
+        target_tracks = self._get_target_tracks()      
+        
         if not target_tracks:
             self.status_var.set("No tracks available to standardize.")
             return
@@ -176,12 +191,16 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
     def _on_complete_tracks_info(self) -> None:
         target_tracks = self._get_target_tracks()
+        
         if not target_tracks:
             self.status_var.set("No tracks available to complete.")
             return
 
         changed_tracks = 0
         for track in target_tracks:
+            if track.album and track.label and track.year and track.year != 0:
+                continue  # Skip tracks that already have all metadata.
+            
             completion = complete_track_metadata(
                 title=track.name or "",
                 artist=track.artist or "",
@@ -219,23 +238,66 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
             self.status_var.set("No tracks available to validate.")
             return
 
-        updates = [
-            (
-                track.id,
-                self._edited_values.get(str(track.id), {}).get("name"),
-                self._edited_values.get(str(track.id), {}).get("artist"),
-                self._edited_values.get(str(track.id), {}).get("album"),
-                self._edited_values.get(str(track.id), {}).get("year"),
-                self._edited_values.get(str(track.id), {}).get("label"),
-                self._edited_values.get(str(track.id), {}).get("genre"),
-                self._edited_values.get(str(track.id), {}).get("bpm"),
-            )
-            for track in target_tracks
-        ]
+        editable_fields = ("name", "artist", "album", "year", "label", "genre", "bpm")
+        updates = []
+        for track in target_tracks:
+            track_id = str(track.id)
+            current_values = {
+                "name": track.name or "",
+                "artist": track.artist or "",
+                "album": track.album or "",
+                "year": track.year,
+                "label": track.label or "",
+                "genre": track.genre or "",
+                "bpm": track.bpm,
+            }
+
+            if any(
+                current_values[field]
+                != self._original_values.get(track_id, {}).get(field)
+                for field in editable_fields
+            ):
+                updates.append(
+                    (
+                        track.id,
+                        current_values["name"],
+                        current_values["artist"],
+                        current_values["album"],
+                        current_values["year"],
+                        current_values["label"],
+                        current_values["genre"],
+                        current_values["bpm"],
+                    )
+                )
+                self._edited_values[track_id] = dict(current_values)
+
+        if not updates:
+            self.status_var.set("No modified tracks to save.")
+            return
+
         update_track_rekordbox_metadata(
             target_tracks,
             updates,
             set_status_callback=self.status_var.set,
         )
+
+        # Mark the submitted rows as clean so a follow-up Validate does not
+        # re-send the same values if the view refreshes before the database reloads.
+        for track_id, *_rest in updates:
+            track_key = str(track_id)
+            current_track = next((track for track in target_tracks if str(track.id) == track_key), None)
+            if current_track is None:
+                continue
+            snapshot = {
+                "name": current_track.name or "",
+                "artist": current_track.artist or "",
+                "album": current_track.album or "",
+                "year": current_track.year,
+                "label": current_track.label or "",
+                "genre": current_track.genre or "",
+                "bpm": current_track.bpm,
+            }
+            self._original_values[track_key] = snapshot
+            self._edited_values[track_key] = dict(snapshot)
         if self.controller is not None:
             self.controller.refresh_collection()
