@@ -41,11 +41,13 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         main_frame = ttk.Frame(context.notebook)
         context.notebook.add(main_frame, text="Tracks Info Completer")
 
-        self._create_widgets(context,   main_frame)
+        self._create_widgets(context, main_frame)
 
         return main_frame
 
-    def _create_config_widgets(self, context: FeatureContext, parent: ttk.Frame) -> None:
+    def _create_config_widgets(
+        self, context: FeatureContext, parent: ttk.Frame
+    ) -> None:
         ttk.Label(
             parent,
             text="Tracks configuration settings coming soon...",
@@ -143,15 +145,18 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                     "genre": track.genre or "",
                     "bpm": track.bpm,
                 }
-            self._edited_values.setdefault(track_id, {
-                "name": track.name or "",
-                "artist": track.artist or "",
-                "album": track.album or "",
-                "year": track.year,
-                "label": track.label or "",
-                "genre": track.genre or "",
-                "bpm": track.bpm,
-            })
+            self._edited_values.setdefault(
+                track_id,
+                {
+                    "name": track.name or "",
+                    "artist": track.artist or "",
+                    "album": track.album or "",
+                    "year": track.year,
+                    "label": track.label or "",
+                    "genre": track.genre or "",
+                    "bpm": track.bpm,
+                },
+            )
 
     def _on_track_selected(self, track: Optional[Track]) -> None:
         self.selected_track = track
@@ -171,8 +176,8 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
     def _on_standardize(self) -> None:
         """Apply standardize_name to every track and refresh the list."""
-        target_tracks = self._get_target_tracks()      
-        
+        target_tracks = self._get_target_tracks()
+
         if not target_tracks:
             self.status_var.set("No tracks available to standardize.")
             return
@@ -191,7 +196,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
     def _on_complete_tracks_info(self) -> None:
         target_tracks = self._get_target_tracks()
-        
+
         if not target_tracks:
             self.status_var.set("No tracks available to complete.")
             return
@@ -200,7 +205,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         for track in target_tracks:
             if track.album and track.label and track.year and track.year != 0:
                 continue  # Skip tracks that already have all metadata.
-            
+
             completion = complete_track_metadata(
                 title=track.name or "",
                 artist=track.artist or "",
@@ -233,14 +238,14 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
     def _on_validate(self) -> None:
         """Emit the on_validate callback with (track_id, name, artist, album) tuples."""
-        target_tracks = self._get_target_tracks()
-        if not target_tracks:
+        all_tracks = self.tracks_list.get_tracks()
+        if not all_tracks:
             self.status_var.set("No tracks available to validate.")
             return
 
         editable_fields = ("name", "artist", "album", "year", "label", "genre", "bpm")
         updates = []
-        for track in target_tracks:
+        for track in all_tracks:
             track_id = str(track.id)
             current_values = {
                 "name": track.name or "",
@@ -276,7 +281,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
             return
 
         update_track_rekordbox_metadata(
-            target_tracks,
+            all_tracks,
             updates,
             set_status_callback=self.status_var.set,
         )
@@ -285,7 +290,10 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         # re-send the same values if the view refreshes before the database reloads.
         for track_id, *_rest in updates:
             track_key = str(track_id)
-            current_track = next((track for track in target_tracks if str(track.id) == track_key), None)
+            current_track = next(
+                (track for track in all_tracks if str(track.id) == track_key),
+                None,
+            )
             if current_track is None:
                 continue
             snapshot = {
