@@ -7,7 +7,7 @@ import re
 _SUFFIX_RE = re.compile(
     r"^\s*"
     r"(?P<head>.+)\s*[\-\u2013]\s*"
-    r"(?P<side>[A-D])\s*"
+    r"(?P<side>[A-D])(?P=side)*\s*"
     r"(?:[\-\u2013]\s*(?P<rpm>(?:33|45)(?:\s*\*?\s*rpm)?))?\s*$",
     re.IGNORECASE,
 )

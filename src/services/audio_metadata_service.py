@@ -91,18 +91,18 @@ def complete_track_metadata(
             source="Discogs",
         )
 
-    if not normalized_album:
-        bandcamp_album = lookup_bandcamp_album(
-            title=normalized_title,
-            artist=normalized_artist,
-        )
-        if bandcamp_album:
-            return CompletedMetadata(
-                title=normalized_title,
-                artist=normalized_artist,
-                album=bandcamp_album.strip(),
-                source="Bandcamp",
-            )
+    # if not normalized_album:
+    #     bandcamp_album = lookup_bandcamp_album(
+    #         title=normalized_title,
+    #         artist=normalized_artist,
+    #     )
+    #     if bandcamp_album:
+    #         return CompletedMetadata(
+    #             title=normalized_title,
+    #             artist=normalized_artist,
+    #             album=bandcamp_album.strip(),
+    #             source="Bandcamp",
+    #         )
 
     return CompletedMetadata(
         title=normalized_title,

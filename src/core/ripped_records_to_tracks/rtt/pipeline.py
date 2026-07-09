@@ -23,6 +23,7 @@ from .segmentation import (
 )
 from src.services import complete_track_metadata
 
+
 @dataclass
 class SplitOutput:
     segmentation: SegmentationResult
@@ -95,7 +96,7 @@ def _discogs_export_info_from_filename_stem(stem: str) -> DiscogsExportInfo:
     side_hint = (parsed.side or "").strip().upper()[:1]
     selected_tracks = tracks
     if side_hint in {"A", "B", "C", "D"}:
-        side_tracks = [track for track in tracks if track.side == side_hint]
+        side_tracks = [track for track in tracks if (track.side or "").startswith(side_hint)]
         if side_tracks:
             selected_tracks = side_tracks
         else:

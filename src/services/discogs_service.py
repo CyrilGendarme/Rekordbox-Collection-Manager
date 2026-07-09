@@ -16,6 +16,7 @@ Get a personal token at: https://www.discogs.com/settings/developers
 import logging
 import re
 import time
+from functools import lru_cache
 from typing import List, Optional
 
 import httpx
@@ -36,7 +37,7 @@ _HEADERS = {
     "User-Agent": "DiggerHelper/1.0 +https://github.com/CyrilGendarme/digger-helper"
 }
 _CATNO_NORMALIZE_RE = re.compile(r"[^A-Z0-9]")
-_SIDE_RE = re.compile(r"^\s*([A-D])")
+_SIDE_RE = re.compile(r"^\s*([A-D]+)")
 
 
 def _get_with_429_backoff(
@@ -123,6 +124,7 @@ def _search_raw(params: dict, limit: int) -> list:
     return resp.json().get("results", [])[:limit]
 
 
+@lru_cache(maxsize=1024)
 def _fetch_release(release_id: int) -> dict:
     """Fetch full release detail from /releases/{id}."""
     resp = _get_with_429_backoff(
@@ -133,6 +135,7 @@ def _fetch_release(release_id: int) -> dict:
     return resp.json()
 
 
+@lru_cache(maxsize=1024)
 def _fetch_price_stats(release_id: int) -> Optional[PriceStats]:
     """Fetch num_for_sale and lowest_price from /marketplace/stats/{id}."""
     try:
@@ -170,7 +173,11 @@ def _fetch_price_stats(release_id: int) -> Optional[PriceStats]:
     )
 
 
-def _parse_result(item: dict) -> Optional[DiscogsResult]:
+def _parse_result(
+    item: dict,
+    *,
+    include_market_stats: bool = True,
+) -> Optional[DiscogsResult]:
     """Convert a search result item + full release detail into a DiscogsResult."""
     release_id = item.get("id")
     if not release_id:
@@ -231,7 +238,7 @@ def _parse_result(item: dict) -> Optional[DiscogsResult]:
     title = _safe(detail.get("title") or item.get("title")) or ""
 
     # Marketplace pricing (API only exposes num_for_sale + lowest_price)
-    price_stats = _fetch_price_stats(release_id)
+    price_stats = _fetch_price_stats(release_id) if include_market_stats else None
 
     return DiscogsResult(
         id=release_id,
@@ -254,6 +261,7 @@ def search_releases(
     album: Optional[str] = None,
     catno: Optional[str] = None,
     limit: int = 5,
+    include_market_stats: bool = True,
 ) -> List[DiscogsResult]:
     # ── Primary: field-specific search ───────────────────────────────────────
     params: dict = {}
@@ -281,7 +289,7 @@ def search_releases(
 
     output: List[DiscogsResult] = []
     for item in raw:
-        result = _parse_result(item)
+        result = _parse_result(item, include_market_stats=include_market_stats)
         if result:
             output.append(result)
 
@@ -292,8 +300,14 @@ def _search_releases_by_record_ref(
     record_ref: str,
     artist: Optional[str],
     limit: int,
+    include_market_stats: bool = True,
 ) -> List[DiscogsResult]:
-    releases = search_releases(artist=artist, catno=record_ref, limit=limit)
+    releases = search_releases(
+        artist=artist,
+        catno=record_ref,
+        limit=limit,
+        include_market_stats=include_market_stats,
+    )
     if releases:
         return releases
 
@@ -301,7 +315,7 @@ def _search_releases_by_record_ref(
     raw = _search_raw(fallback_query, limit)
     fallback: List[DiscogsResult] = []
     for item in raw:
-        parsed = _parse_result(item)
+        parsed = _parse_result(item, include_market_stats=include_market_stats)
         if parsed:
             fallback.append(parsed)
     return fallback
@@ -334,6 +348,7 @@ def get_release_info_by_record_ref(
         record_ref=record_ref,
         artist=artist,
         limit=limit,
+        include_market_stats=False,
     )
     chosen = _pick_release_for_record_ref(releases, record_ref=record_ref)
     if chosen is None:
@@ -382,20 +397,26 @@ def get_release_tracks_by_record_ref(
     return info.tracks
 
 
-def lookup_discogs_metadata(title: str, artist: str, album: str = "") -> dict:
-    """Fetch first Discogs hit and return a compact metadata payload."""
+@lru_cache(maxsize=1024)
+def _lookup_discogs_metadata_cached(
+    title: str,
+    artist: str,
+    album: str,
+) -> tuple[str, Optional[int], Optional[str], Optional[str]]:
+    """Cached Discogs metadata lookup, skipping marketplace stats for speed."""
     try:
         results = search_releases(
-            artist=artist,
-            track=title,
+            artist=artist or None,
+            track=title or None,
             album=album or None,
             limit=5,
+            include_market_stats=False,
         )
     except Exception:
-        return {}
+        return "", None, None, None
 
     if not results:
-        return {}
+        return "", None, None, None
 
     best = results[0]
     album_name = album
@@ -417,9 +438,32 @@ def lookup_discogs_metadata(title: str, artist: str, album: str = "") -> dict:
     if isinstance(label_val, list):
         label_val = label_val[0] if label_val else None
 
+    return album_name, year_int, label_val, getattr(best, "catno", None)
+
+
+def lookup_discogs_metadata(title: str, artist: str, album: str = "") -> dict:
+    """Fetch first Discogs hit and return a compact metadata payload."""
+    normalized_title = (title or "").strip()
+    normalized_artist = (artist or "").strip()
+    normalized_album = (album or "").strip()
+
+    if not normalized_title or not normalized_artist:
+        return {}
+
+    # When album is known, reuse one release-level lookup for all track titles.
+    title_key = "" if normalized_album else normalized_title
+
+    album_name, year_int, label_val, catno = _lookup_discogs_metadata_cached(
+        title_key,
+        normalized_artist,
+        normalized_album,
+    )
+    if not any([album_name, year_int, label_val, catno]):
+        return {}
+
     return {
         "album": album_name,
         "year": year_int,
         "label": label_val,
-        "catno": getattr(best, "catno", None),
+        "catno": catno,
     }
