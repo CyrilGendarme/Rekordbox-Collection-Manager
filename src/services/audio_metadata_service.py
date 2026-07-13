@@ -5,6 +5,7 @@ from functools import lru_cache
 import logging
 from pathlib import Path
 
+from src.services.musicbrainz_service import lookup_musicbrainz_album
 from src.services.bandcamp_service import lookup_bandcamp_album
 from src.services.discogs_service import lookup_discogs_metadata
 
@@ -90,6 +91,20 @@ def complete_track_metadata(
             label=str(discogs_data.get("label") or "").strip(),
             source="Discogs",
         )
+        
+    else:
+        mb_album = lookup_musicbrainz_album(
+            query=f"{normalized_artist} - {normalized_title}",
+            limit=3,
+        )
+        if mb_album and mb_album.get("album_title") != "":
+            return CompletedMetadata(
+                title=normalized_title,
+                artist=normalized_artist,
+                album=mb_album.get("album_title", "").strip(),
+                source="MusicBrainz",
+                year=mb_album.get("album_release_date", "").split("-")[0] if mb_album.get("album_release_date") else None,
+            )
 
     # if not normalized_album:
     #     bandcamp_album = lookup_bandcamp_album(

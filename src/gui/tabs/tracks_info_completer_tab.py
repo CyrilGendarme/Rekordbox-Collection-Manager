@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from typing import List, Optional, Callable
+import logging
 
 from ..widgets import InfoLabel, TracksList
 from ...data.models import Track
@@ -9,6 +10,9 @@ from ..tab_system import ConfigSubtabFeature, FeatureContext
 from src.core.tracks_info_completer.helpers import standardize_name
 from src.core.tracks_info_completer.actions import update_track_rekordbox_metadata
 from src.services import complete_track_metadata
+
+
+logger = logging.getLogger(__name__)
 
 
 class TracksInfoCompleterFeature(ConfigSubtabFeature):
@@ -202,15 +206,26 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
             return
 
         changed_tracks = 0
+        failed_tracks = 0
         for track in target_tracks:
             if track.album and track.label and track.year and track.year != 0:
                 continue  # Skip tracks that already have all metadata.
 
-            completion = complete_track_metadata(
-                title=track.name or "",
-                artist=track.artist or "",
-                album=track.album or "",
-            )
+            try:
+                completion = complete_track_metadata(
+                    title=track.name or "",
+                    artist=track.artist or "",
+                    album=track.album or "",
+                )
+            except Exception:
+                failed_tracks += 1
+                logger.exception(
+                    "Track metadata completion failed for track_id=%s title=%r artist=%r",
+                    track.id,
+                    track.name,
+                    track.artist,
+                )
+                continue
 
             track_changed = False
             edited = self._edited_values.setdefault(str(track.id), {})
@@ -234,7 +249,12 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                 changed_tracks += 1
 
         self.tracks_list.set_tracks(self.tracks_list.get_tracks())
-        self.status_var.set(f"Completed metadata for {changed_tracks} track(s).")
+        if failed_tracks:
+            self.status_var.set(
+                f"Completed metadata for {changed_tracks} track(s). Failed for {failed_tracks} track(s), see logs."
+            )
+        else:
+            self.status_var.set(f"Completed metadata for {changed_tracks} track(s).")
 
     def _on_validate(self) -> None:
         """Emit the on_validate callback with (track_id, name, artist, album) tuples."""
