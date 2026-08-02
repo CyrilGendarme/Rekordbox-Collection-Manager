@@ -13,11 +13,11 @@ from typing import Optional
 from src.core.to_33rpm.io_audio import read_audio, write_audio
 from src.core.to_33rpm.processing import ProcessConfig, emulate_45_played_at_33
 from src.data import RekordboxDAO, Track
-from src.gui.tab_system import FeatureContext, TabFeature
+from src.gui.tab_system import ConfigSubtabFeature, FeatureContext
 from src.gui.widgets import TracksList
 from src.services import complete_track_metadata
 from src.services.audio_metadata_service import write_audio_metadata
-
+from src.user_config import settings
 
 OUTPUT_SUFFIX = ".wav"
 
@@ -37,14 +37,18 @@ class TransformedTrack:
     imported_track_id: str = ""
 
 
-class To33RpmFeature(TabFeature):
+class To33RpmFeature(ConfigSubtabFeature):
     name = "to_33rpm"
+    config_tab_title = "To 33RPM"
 
     def __init__(self):
         self.root: tk.Tk | None = None
         self.controller = None
 
-        self.output_dir_var = tk.StringVar(value=str(Path.cwd() / "to_33rpm_outputs"))
+        configured_output_dir = (settings.TO_33RPM_OUTPUT_DIR or "").strip()
+        if not configured_output_dir:
+            configured_output_dir = str(Path.cwd() / "to_33rpm_outputs")
+        self.output_dir_var = tk.StringVar(value=configured_output_dir)
         self.status_var = tk.StringVar(
             value="Select tracks, transform to 33 RPM, preview, then import to Rekordbox."
         )
@@ -69,26 +73,47 @@ class To33RpmFeature(TabFeature):
 
         self._create_widgets(main_frame)
         if self.controller is not None:
-            self.controller.register_collection_loaded_callbacks(self._on_collection_loaded)
+            self.controller.register_collection_loaded_callbacks(
+                self._on_collection_loaded
+            )
             self._on_collection_loaded(self.controller.get_tracks())
 
         return main_frame
+
+    def _create_config_widgets(self, context: FeatureContext, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+
+        wrapper = ttk.LabelFrame(parent, text="To 33RPM Output", padding=10)
+        wrapper.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        wrapper.columnconfigure(1, weight=1)
+
+        ttk.Label(wrapper, text="Output folder:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(wrapper, textvariable=self.output_dir_var).grid(
+            row=0, column=1, sticky="ew", padx=(8, 8)
+        )
+        ttk.Button(wrapper, text="Choose Folder", command=self._choose_output_dir).grid(
+            row=0, column=2, sticky="e"
+        )
+
+        ttk.Button(
+            wrapper,
+            text="Apply",
+            style="Accent.TButton",
+            command=self._apply_output_dir_config,
+        ).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
     def _create_widgets(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(2, weight=1)
 
-        controls = ttk.LabelFrame(parent, text="Output and Processing", padding=10)
+        controls = ttk.LabelFrame(parent, text="Processing", padding=10)
         controls.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
-        controls.columnconfigure(1, weight=1)
 
-        ttk.Label(controls, text="Output folder:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.output_dir_var).grid(
-            row=0, column=1, sticky="ew", padx=(8, 8)
-        )
-        ttk.Button(controls, text="Choose Folder", command=self._choose_output_dir).grid(
-            row=0, column=2, sticky="e"
-        )
+        ttk.Label(
+            controls,
+            text="Output folder is configured in Configuration > To 33RPM.",
+            style="Dim.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
 
         self.transform_btn = ttk.Button(
             controls,
@@ -96,7 +121,7 @@ class To33RpmFeature(TabFeature):
             style="Accent.TButton",
             command=self.transform_selected_tracks,
         )
-        self.transform_btn.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self.transform_btn.grid(row=1, column=0, sticky="ew")
 
         ttk.Label(
             parent,
@@ -112,7 +137,9 @@ class To33RpmFeature(TabFeature):
         body = ttk.Panedwindow(parent, orient=tk.VERTICAL)
         body.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 6))
 
-        source_frame = ttk.LabelFrame(body, text="Rekordbox Collection (multiselect)", padding=8)
+        source_frame = ttk.LabelFrame(
+            body, text="Rekordbox Collection (multiselect)", padding=8
+        )
         source_frame.columnconfigure(0, weight=1)
         source_frame.rowconfigure(0, weight=1)
 
@@ -141,7 +168,15 @@ class To33RpmFeature(TabFeature):
 
         self.preview_tree = ttk.Treeview(
             transformed_frame,
-            columns=("title", "artist", "album", "genre", "path", "status", "rekordbox_id"),
+            columns=(
+                "title",
+                "artist",
+                "album",
+                "genre",
+                "path",
+                "status",
+                "rekordbox_id",
+            ),
             show="headings",
             selectmode="extended",
             height=14,
@@ -191,7 +226,9 @@ class To33RpmFeature(TabFeature):
         body.add(source_frame, weight=3)
         body.add(transformed_frame, weight=2)
 
-        ttk.Label(parent, textvariable=self.status_var, style="Dim.TLabel", anchor="w").grid(
+        ttk.Label(
+            parent, textvariable=self.status_var, style="Dim.TLabel", anchor="w"
+        ).grid(
             row=3,
             column=0,
             sticky="ew",
@@ -200,13 +237,75 @@ class To33RpmFeature(TabFeature):
         )
 
     def _choose_output_dir(self) -> None:
-        selected = filedialog.askdirectory(title="Select output folder for 33 RPM files")
+        selected = filedialog.askdirectory(
+            title="Select output folder for 33 RPM files"
+        )
         if selected:
-            self.output_dir_var.set(selected)
+            cleaned = selected.strip()
+            self.output_dir_var.set(cleaned)
+            settings.TO_33RPM_OUTPUT_DIR = cleaned
+
+    def _apply_output_dir_config(self) -> None:
+        configured = self.output_dir_var.get().strip()
+        if not configured:
+            self._show_error(
+                "Missing output folder",
+                "Please choose a valid output folder for To 33RPM.",
+            )
+            return
+
+        self.output_dir_var.set(configured)
+        settings.TO_33RPM_OUTPUT_DIR = configured
+        self.status_var.set("To 33RPM output folder updated.")
 
     def _on_collection_loaded(self, tracks: list[Track]) -> None:
         if self.tracks_list is not None:
-            self.tracks_list.set_tracks(list(tracks))
+            self.tracks_list.set_tracks(self._filter_source_tracks(tracks))
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return re.sub(r"\s+", " ", (value or "").strip()).lower()
+
+    @classmethod
+    def _extract_base_title_if_33rpm(cls, title: str) -> Optional[str]:
+        raw = (title or "").strip()
+        # Accept "(33rpm)" and "(33 rpm)" at end of title (case-insensitive)
+        match = re.match(r"^(.*)\(\s*33\s*rpm\s*\)\s*$", raw, flags=re.IGNORECASE)
+        if not match:
+            return None
+        base = match.group(1).strip()
+        return base or None
+
+    @classmethod
+    def _filter_source_tracks(cls, tracks: list[Track]) -> list[Track]:
+        # Build set of base titles that already have a "(33 rpm)" transformed version
+        base_titles_with_33: set[str] = set()
+        for track in tracks:
+            base = cls._extract_base_title_if_33rpm(track.name or "")
+            if base:
+                base_titles_with_33.add(cls._normalize_text(base))
+
+        filtered: list[Track] = []
+        for track in tracks:
+            title = track.name or ""
+            norm_title = cls._normalize_text(title)
+            norm_genre = cls._normalize_text(track.genre or "")
+
+            # 1) Exclude tracks with genre "33 rpm"
+            if norm_genre == "33 rpm":
+                continue
+
+            # 2) Exclude explicit transformed variants, e.g. "track (33rpm)"
+            if cls._extract_base_title_if_33rpm(title):
+                continue
+
+            # 3) Exclude original tracks when transformed counterpart exists
+            if norm_title in base_titles_with_33:
+                continue
+
+            filtered.append(track)
+
+        return filtered
 
     def _on_source_track_selected(self, _track: Optional[Track]) -> None:
         if self.tracks_list is None:
@@ -237,7 +336,9 @@ class To33RpmFeature(TabFeature):
 
         selected_tracks = self.tracks_list.get_selected_tracks()
         if not selected_tracks:
-            self._show_error("No tracks selected", "Please select one or more tracks first.")
+            self._show_error(
+                "No tracks selected", "Please select one or more tracks first."
+            )
             return
 
         output_dir = self.output_dir_var.get().strip()
@@ -245,7 +346,9 @@ class To33RpmFeature(TabFeature):
             self._show_error("Missing output folder", "Please choose an output folder.")
             return
 
-        self._set_busy(True, f"Transforming {len(selected_tracks)} track(s) to 33 RPM...")
+        self._set_busy(
+            True, f"Transforming {len(selected_tracks)} track(s) to 33 RPM..."
+        )
         worker = threading.Thread(
             target=self._transform_worker,
             args=(selected_tracks, output_dir),
@@ -268,7 +371,9 @@ class To33RpmFeature(TabFeature):
             if self.root is not None:
                 self.root.after(
                     0,
-                    lambda i=index, n=len(tracks), name=track.display_name: self.status_var.set(
+                    lambda i=index, n=len(
+                        tracks
+                    ), name=track.display_name: self.status_var.set(
                         f"[{i}/{n}] Transforming {name}..."
                     ),
                 )
@@ -278,7 +383,9 @@ class To33RpmFeature(TabFeature):
                 audio, meta = read_audio(input_path)
                 processed = emulate_45_played_at_33(
                     audio,
-                    ProcessConfig(method="polyphase", normalize=True, target_peak_dbfs=-1.0),
+                    ProcessConfig(
+                        method="polyphase", normalize=True, target_peak_dbfs=-1.0
+                    ),
                 )
 
                 transformed_title = f"{(track.name or '').strip()} (33 rpm)".strip()
@@ -393,7 +500,10 @@ class To33RpmFeature(TabFeature):
     def play_selected_preview(self) -> None:
         selected = self._get_selected_transformed_items()
         if not selected:
-            self._show_error("No transformed track selected", "Select one transformed track to preview.")
+            self._show_error(
+                "No transformed track selected",
+                "Select one transformed track to preview.",
+            )
             return
 
         candidate = selected[0]
@@ -428,7 +538,9 @@ class To33RpmFeature(TabFeature):
             )
             return
 
-        self._set_busy(True, f"Importing {len(selected)} transformed track(s) to Rekordbox...")
+        self._set_busy(
+            True, f"Importing {len(selected)} transformed track(s) to Rekordbox..."
+        )
         worker = threading.Thread(
             target=self._import_worker,
             args=(selected,),
@@ -444,7 +556,9 @@ class To33RpmFeature(TabFeature):
             if self.root is not None:
                 self.root.after(
                     0,
-                    lambda i=index, n=len(selected), title=item.title: self.status_var.set(
+                    lambda i=index, n=len(
+                        selected
+                    ), title=item.title: self.status_var.set(
                         f"[{i}/{n}] Importing {title}..."
                     ),
                 )
@@ -537,7 +651,9 @@ class To33RpmFeature(TabFeature):
 
         return transformed_tags
 
-    def _build_output_path(self, output_dir: Path, base_title: str, track_id: str) -> Path:
+    def _build_output_path(
+        self, output_dir: Path, base_title: str, track_id: str
+    ) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         stem = self._sanitize_filename_part(base_title)

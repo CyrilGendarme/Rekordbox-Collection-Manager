@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
 
 
 class Settings(BaseSettings):  
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
     TRUNCATE_SILENCE_TRESHOLD: float = -35.0  # in dBFS
     TRUNCATE_SILENCE_CHUNK_SIZE: int = 10  # in ms
     AUDIO_EXPORT_FORMAT: str = "mp3"
+    TO_33RPM_OUTPUT_DIR: str = str(Path.cwd() / "to_33rpm_outputs")
 
 
 settings = Settings()
