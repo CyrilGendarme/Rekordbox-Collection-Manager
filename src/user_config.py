@@ -1,8 +1,16 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from typing import Any
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):  
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     NEXT_PHRASE_KEY: str = "]"
     MEMORY_CUE_KEY: str = "m"
     SWITCH_FOCUS_KEY: str = "tab"
@@ -36,3 +44,36 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _serialize_env_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def persist_setting(key: str, value: Any) -> None:
+    """Persist a setting to in-memory settings and local .env file."""
+    setattr(settings, key, value)
+
+    env_path = Path.cwd() / ".env"
+    new_line = f"{key}={_serialize_env_value(value)}"
+
+    lines: list[str] = []
+    replaced = False
+
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.startswith(f"{key}="):
+                lines[idx] = new_line
+                replaced = True
+                break
+
+    if not replaced:
+        lines.append(new_line)
+
+    env_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
