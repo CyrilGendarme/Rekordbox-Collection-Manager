@@ -55,6 +55,9 @@ class Track:
             # Skip Rekordbox internal content mount paths when a real local path exists.
             if normalized.startswith("/contents_"):
                 continue
+            
+            path = path.replace("C:/Users/User/Desktop/musique", "C:/Users/User/Desktop/musique/tracks")
+            path = path.replace("tracks/tracks", "tracks")
             return path
 
         fallback = str(getattr(row, "OrgFolderPath", "") or "").strip()
