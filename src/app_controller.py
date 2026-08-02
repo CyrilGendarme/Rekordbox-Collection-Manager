@@ -11,6 +11,7 @@ from .gui.tabs.collection_filtering_tab import CollectionFilteringFeature
 from .gui.tabs.memory_cues_tab import MemoryCuesFeature
 from .gui.tabs.ripped_records_to_tracks_tab import RippedRecordsToTracksFeature
 from .gui.tabs.samples_magnifier import SamplesMagnifierFeature
+from .gui.tabs.to_33rpm_tab import To33RpmFeature
 from .gui.tabs.tracks_info_completer_tab import TracksInfoCompleterFeature
 from .gui.tabs.youtube_download import YoutubeDownloadFeature
 
@@ -110,6 +111,7 @@ class AppController:
             TracksInfoCompleterFeature(),
             CollectionFilteringFeature(),
             RippedRecordsToTracksFeature(),
+            To33RpmFeature(),
             SamplesMagnifierFeature(),
             MemoryCuesFeature(),
             YoutubeDownloadFeature(),

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     OPEN_SEARCH_TRACK_DIALOG: str = "*"
     PLAY_PAUSE_TRACK: str = "M"
     LAYOUT_2_DECKS_HORIZONTAL: str = ")"
-    REKORDBOX_EXE_PATH: str = r"C:\Program Files\rekordbox\rekordbox 7.2.14\rekordbox.exe"
+    REKORDBOX_EXE_PATH: str = r"C:\Program Files\rekordbox\rekordbox 7.2.16\rekordbox.exe"
     REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH: str = r"C:/Users\User\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
 
     # Value retrieve from .env file
