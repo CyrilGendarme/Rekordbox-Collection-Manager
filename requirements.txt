@@ -14,6 +14,7 @@ soundfile
 httpx
 mutagen
 pydub
+sounddevice
 pydantic
 pydantic-settings
 yt-dlp

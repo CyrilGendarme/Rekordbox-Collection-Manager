@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import threading
+from typing import Callable
 from tkinter import messagebox
 
 from src.app_controller import AppController
@@ -27,11 +28,7 @@ def setup_logging() -> None:
     )
 
 
-def close_app() -> None:
-    os._exit(0)
-
-
-def _listen_for_ctrl_c() -> None:
+def _listen_for_ctrl_c(on_close: Callable[[], None]) -> None:
     """Optional global hotkey listener to force-close the app."""
     try:
         import keyboard  # Imported lazily because this dependency is optional.
@@ -41,7 +38,7 @@ def _listen_for_ctrl_c() -> None:
         )
         return
 
-    keyboard.add_hotkey("ctrl+c", close_app)
+    keyboard.add_hotkey("ctrl+c", on_close)
     keyboard.wait()
 
 
@@ -69,13 +66,19 @@ def main() -> None:
         enable_hotkey = os.getenv("APP_ENABLE_CTRL_C_HOTKEY", "0") == "1"
         ensure_rekordbox = os.getenv("APP_ENSURE_REKORDBOX", "0") == "1"
 
-        if enable_hotkey:
-            threading.Thread(target=_listen_for_ctrl_c, daemon=True).start()
-
         if ensure_rekordbox and not _bootstrap_rekordbox():
             sys.exit(1)
 
         controller = AppController.get_instance()
+
+        if enable_hotkey:
+            root = controller.window.root
+            threading.Thread(
+                target=_listen_for_ctrl_c,
+                args=(lambda: root.after(0, root.destroy),),
+                daemon=True,
+            ).start()
+
         controller.run()
 
     except KeyboardInterrupt:
