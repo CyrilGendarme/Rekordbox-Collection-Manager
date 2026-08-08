@@ -81,9 +81,17 @@ class MediaLink(BaseModel):
     title: str
     url: str
     thumbnail: Optional[str] = None
+    thumbnail_mime_type: Optional[str] = None
+    thumbnail_media_base64: Optional[str] = None
     duration: Optional[str] = None
     channel: Optional[str] = None
     price: Optional[str] = None
+    page_type: Optional[str] = None
+    parsed_title: Optional[str] = None
+    artist_name: Optional[str] = None
+    label_name: Optional[str] = None
+    release_year: Optional[str] = None
+    album_name: Optional[str] = None
 
 
 class MediaSearchResponse(BaseModel):

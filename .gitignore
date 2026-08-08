@@ -66,6 +66,7 @@ Desktop.ini
 # Environment variables
 .env
 .env.*
+.to33rpm_pending_cleanup.json
 
 # Misc
 *.bak

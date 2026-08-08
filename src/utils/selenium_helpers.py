@@ -9,6 +9,20 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
 
+def _build_common_options(
+    width: int, height: int, chrome_profile_dir: str, include_profile: bool = True
+) -> Options:
+    options = Options()
+    options.add_argument(f"--window-size={width},{height}")
+    if include_profile:
+        options.add_argument(f"--user-data-dir={chrome_profile_dir}")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+    options.add_argument("--lang=en-US")
+    return options
+
+
 def is_port_open(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
@@ -114,6 +128,7 @@ def get_or_attach_driver(
     CHROME_DEV_CONSOLE: bool,
     HEADLESS_MODE: bool = False,
     shall_include_process: bool = False,
+    USE_DEBUG_ATTACH: bool = False,
 ) -> webdriver.Chrome | tuple[webdriver.Chrome, subprocess.Popen | None]:
 
     proc: Optional[subprocess.Popen] = None
@@ -124,15 +139,73 @@ def get_or_attach_driver(
     # HEADLESS MODE (no debug attach)
     # -----------------------------
     if HEADLESS_MODE:
-        options = Options()
+        options = _build_common_options(width, height, CHROME_PROFILE_DIR)
         options.add_argument("--headless=new")
         options.add_argument("--disable-gpu")
-        options.add_argument(f"--window-size={width},{height}")
-        options.add_argument(f"--user-data-dir={CHROME_PROFILE_DIR}")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-infobars")
 
-        driver = webdriver.Chrome(options=options)
+        try:
+            driver = webdriver.Chrome(options=options)
+        except Exception as first_exc:
+            message = str(first_exc).lower()
+            if "devtoolsactiveport" not in message and "session not created" not in message:
+                raise
+
+            # Headless + persisted profile can fail when profile state is locked/corrupted.
+            fallback_options = _build_common_options(
+                width, height, CHROME_PROFILE_DIR, include_profile=False
+            )
+            fallback_options.add_argument("--headless=new")
+            fallback_options.add_argument("--disable-gpu")
+            fallback_options.add_argument("--no-sandbox")
+            fallback_options.add_argument("--disable-dev-shm-usage")
+            fallback_options.add_argument("--disable-infobars")
+            driver = webdriver.Chrome(options=fallback_options)
+
+        try:
+            driver.execute_cdp_cmd(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {
+                    "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                },
+            )
+        except Exception:
+            pass
+
+        if shall_include_process:
+            return driver, None
+        return driver
+
+    options = _build_common_options(width, height, CHROME_PROFILE_DIR)
+    
+    # -----------------------------
+    # NORMAL MODE (direct WebDriver)
+    # -----------------------------
+    if not USE_DEBUG_ATTACH:
+        try:
+            driver = webdriver.Chrome(options=options)
+        except Exception as first_exc:
+            message = str(first_exc).lower()
+            if "devtoolsactiveport" not in message and "session not created" not in message:
+                raise
+
+            # Profile directory can be locked/corrupted; retry once without explicit profile.
+            fallback_options = _build_common_options(
+                width, height, CHROME_PROFILE_DIR, include_profile=False
+            )
+            driver = webdriver.Chrome(options=fallback_options)
+
+        try:
+            driver.execute_cdp_cmd(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {
+                    "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                },
+            )
+        except Exception:
+            pass
 
         if shall_include_process:
             return driver, None

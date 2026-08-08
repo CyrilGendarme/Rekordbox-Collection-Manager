@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from src.services.musicbrainz_service import lookup_musicbrainz_album
-from src.services.bandcamp_service import lookup_bandcamp_album
+from src.services.bandcamp_service import first_result_from_bandcamp_search
 from src.services.discogs_service import lookup_discogs_metadata
 
 logger = logging.getLogger(__name__)
@@ -91,33 +91,37 @@ def complete_track_metadata(
             label=str(discogs_data.get("label") or "").strip(),
             source="Discogs",
         )
-        
-    else:
-        mb_album = lookup_musicbrainz_album(
-            query=f"{normalized_artist} - {normalized_title}",
-            limit=3,
-        )
-        if mb_album and mb_album.get("album_title") != "":
-            return CompletedMetadata(
-                title=normalized_title,
-                artist=normalized_artist,
-                album=mb_album.get("album_title", "").strip(),
-                source="MusicBrainz",
-                year=mb_album.get("album_release_date", "").split("-")[0] if mb_album.get("album_release_date") else None,
-            )
 
-    # if not normalized_album:
-    #     bandcamp_album = lookup_bandcamp_album(
-    #         title=normalized_title,
-    #         artist=normalized_artist,
-    #     )
-    #     if bandcamp_album:
-    #         return CompletedMetadata(
-    #             title=normalized_title,
-    #             artist=normalized_artist,
-    #             album=bandcamp_album.strip(),
-    #             source="Bandcamp",
-    #         )
+    bandcamp_data = first_result_from_bandcamp_search(
+        title=normalized_title,
+        artist=normalized_artist,
+    )
+    if bandcamp_data:
+        return CompletedMetadata(
+            title=normalized_title,
+            artist=normalized_artist,
+            album=bandcamp_data.album_name,
+            label=bandcamp_data.label_name,
+            year=_coerce_year(bandcamp_data.release_year),
+            source="Bandcamp",
+        )
+
+    mb_album = lookup_musicbrainz_album(
+        query=f"{normalized_artist} - {normalized_title}",
+        limit=3,
+    )
+    if mb_album and mb_album.get("album_title") != "":
+        return CompletedMetadata(
+            title=normalized_title,
+            artist=normalized_artist,
+            album=mb_album.get("album_title", "").strip(),
+            source="MusicBrainz",
+            year=(
+                mb_album.get("album_release_date", "").split("-")[0]
+                if mb_album.get("album_release_date")
+                else None
+            ),
+        )
 
     return CompletedMetadata(
         title=normalized_title,
