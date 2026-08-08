@@ -1,8 +1,10 @@
+import atexit
 import os
 import re
 import unicodedata
 import time
 import logging
+import threading
 import random
 import json
 import base64
@@ -16,6 +18,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 logger = logging.getLogger(__name__)
+_BANDCAMP_DRIVER_LOCK = threading.Lock()
+_BANDCAMP_SHARED_DRIVER = None
+_BANDCAMP_SHARED_DRIVER_KEY: tuple | None = None
 
 
 def _is_truthy_env(value: str | None, default: bool = True) -> bool:
@@ -389,12 +394,94 @@ def _build_bandcamp_attempts(
     return attempts
 
 
-def _cleanup_attempt_resources(driver, attempt: dict) -> None:
+def _bandcamp_driver_key(
+    *,
+    width: int,
+    height: int,
+    debug_port: int,
+    profile_dir: str,
+    chrome_dev_console: bool,
+    headless_mode: bool,
+    use_debug_attach: bool,
+) -> tuple:
+    return (
+        width,
+        height,
+        debug_port,
+        profile_dir,
+        chrome_dev_console,
+        headless_mode,
+        use_debug_attach,
+    )
+
+
+def _close_shared_bandcamp_driver() -> None:
+    global _BANDCAMP_SHARED_DRIVER, _BANDCAMP_SHARED_DRIVER_KEY
+
+    with _BANDCAMP_DRIVER_LOCK:
+        driver = _BANDCAMP_SHARED_DRIVER
+        _BANDCAMP_SHARED_DRIVER = None
+        _BANDCAMP_SHARED_DRIVER_KEY = None
+
     if driver:
         try:
             driver.quit()
         except Exception:
             pass
+
+
+atexit.register(_close_shared_bandcamp_driver)
+
+
+def _get_shared_bandcamp_driver(
+    *,
+    width: int,
+    height: int,
+    debug_port: int,
+    profile_dir: str,
+    chrome_dev_console: bool,
+    headless_mode: bool,
+    use_debug_attach: bool,
+):
+    global _BANDCAMP_SHARED_DRIVER, _BANDCAMP_SHARED_DRIVER_KEY
+
+    requested_key = _bandcamp_driver_key(
+        width=width,
+        height=height,
+        debug_port=debug_port,
+        profile_dir=profile_dir,
+        chrome_dev_console=chrome_dev_console,
+        headless_mode=headless_mode,
+        use_debug_attach=use_debug_attach,
+    )
+
+    with _BANDCAMP_DRIVER_LOCK:
+        driver = _BANDCAMP_SHARED_DRIVER
+        if driver is not None and _BANDCAMP_SHARED_DRIVER_KEY == requested_key:
+            try:
+                _ = driver.session_id
+                _ = driver.current_url
+                return driver
+            except Exception:
+                _BANDCAMP_SHARED_DRIVER = None
+                _BANDCAMP_SHARED_DRIVER_KEY = None
+
+    driver = get_or_attach_driver(
+        width=width,
+        height=height,
+        DEBUG_PORT=debug_port,
+        CHROME_PROFILE_DIR=profile_dir,
+        CHROME_DEV_CONSOLE=chrome_dev_console,
+        HEADLESS_MODE=headless_mode,
+        USE_DEBUG_ATTACH=use_debug_attach,
+        shall_include_process=False,
+    )
+
+    with _BANDCAMP_DRIVER_LOCK:
+        _BANDCAMP_SHARED_DRIVER = driver
+        _BANDCAMP_SHARED_DRIVER_KEY = requested_key
+
+    return driver
 
 
 def _build_bandcamp_links(
@@ -637,17 +724,15 @@ def search_bandcamp(query: str, limit: int = 5) -> list[dict]:
 
     last_exc = None
     for attempt_index, attempt in enumerate(attempts):
-        driver = None
         try:
-            driver, _ = get_or_attach_driver(
+            driver = _get_shared_bandcamp_driver(
                 width=1280,
                 height=800,
-                DEBUG_PORT=attempt["debug_port"],
-                CHROME_PROFILE_DIR=attempt["profile_dir"],
-                CHROME_DEV_CONSOLE=False,
-                HEADLESS_MODE=use_headless,
-                USE_DEBUG_ATTACH=use_debug_attach,
-                shall_include_process=True,
+                debug_port=attempt["debug_port"],
+                profile_dir=attempt["profile_dir"],
+                chrome_dev_console=False,
+                headless_mode=use_headless,
+                use_debug_attach=use_debug_attach,
             )
 
             raw = get_bandcamp_info(driver, name=name_q, artist=artist_q)
@@ -683,9 +768,6 @@ def search_bandcamp(query: str, limit: int = 5) -> list[dict]:
                     sleep_seconds,
                 )
                 time.sleep(sleep_seconds)
-
-        finally:
-            _cleanup_attempt_resources(driver, attempt)
     logger.warning(
         "Bandcamp search failed after Selenium retries | selenium=%s",
         _format_exception_for_log(last_exc) if last_exc else "none",
