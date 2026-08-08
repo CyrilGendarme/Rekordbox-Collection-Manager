@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import atexit
+import json
 import os
 import tempfile
 import threading
@@ -24,6 +26,8 @@ from src.data import RekordboxDAO
 from src.gui.tab_system import ConfigSubtabFeature, FeatureContext
 from src.gui.widgets import AudioPreviewPlayer, ScrollableFrame
 from src.user_config import persist_setting, settings
+
+PENDING_YOUTUBE_DOWNLOADS_FILE = Path.cwd() / ".youtube_download_pending_cleanup.json"
 
 
 class YoutubeDownloadFeature(ConfigSubtabFeature):
@@ -65,10 +69,17 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
 
         self._is_busy = False
         self.status_var = tk.StringVar(value="Ready")
+        self._cleanup_lock = threading.Lock()
+        self._generated_download_paths: set[str] = set()
+        self._imported_download_paths: set[str] = set()
+        self._cleanup_hook_registered = False
 
     def build_main_tab(self, context: FeatureContext) -> Optional[ttk.Frame]:
         self.root = context.root
         self.controller = context.controller
+
+        self._register_cleanup_hook()
+        self._cleanup_stale_unimported_downloads()
 
         main_frame = ttk.Frame(context.notebook)
         context.notebook.add(main_frame, text="YouTube Download")
@@ -370,6 +381,122 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             command=lambda: self._apply_youtube_download_dir(self.youtube_dir_var.get()),
         ).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
+    def _register_cleanup_hook(self) -> None:
+        if self._cleanup_hook_registered:
+            return
+
+        self._cleanup_hook_registered = True
+        atexit.register(self._cleanup_unimported_downloads)
+
+    def _load_pending_cleanup_state(self) -> tuple[set[str], set[str]]:
+        if not PENDING_YOUTUBE_DOWNLOADS_FILE.exists():
+            return set(), set()
+
+        try:
+            payload = json.loads(PENDING_YOUTUBE_DOWNLOADS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return set(), set()
+
+        generated = {
+            str(path).strip()
+            for path in payload.get("generated", [])
+            if str(path).strip()
+        }
+        imported = {
+            str(path).strip()
+            for path in payload.get("imported", [])
+            if str(path).strip()
+        }
+        return generated, imported
+
+    def _save_pending_cleanup_state(self) -> None:
+        with self._cleanup_lock:
+            payload = {
+                "generated": sorted(self._generated_download_paths),
+                "imported": sorted(self._imported_download_paths),
+            }
+
+        PENDING_YOUTUBE_DOWNLOADS_FILE.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _cleanup_stale_unimported_downloads(self) -> None:
+        generated, imported = self._load_pending_cleanup_state()
+        pending = generated - imported
+        if not pending:
+            return
+
+        for raw_path in sorted(pending):
+            try:
+                candidate = Path(raw_path)
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+            except Exception:
+                pass
+
+        if PENDING_YOUTUBE_DOWNLOADS_FILE.exists():
+            try:
+                PENDING_YOUTUBE_DOWNLOADS_FILE.unlink()
+            except Exception:
+                pass
+
+    def _track_generated_download(self, file_path: str) -> None:
+        clean = str(file_path or "").strip()
+        if not clean:
+            return
+
+        with self._cleanup_lock:
+            self._generated_download_paths.add(clean)
+
+        self._save_pending_cleanup_state()
+
+    def _track_imported_download(self, file_path: str) -> None:
+        clean = str(file_path or "").strip()
+        if not clean:
+            return
+
+        with self._cleanup_lock:
+            self._imported_download_paths.add(clean)
+
+        self._save_pending_cleanup_state()
+
+    def _cleanup_download_file(self, file_path: str) -> None:
+        clean = str(file_path or "").strip()
+        if not clean:
+            return
+
+        with self._cleanup_lock:
+            self._generated_download_paths.discard(clean)
+            self._imported_download_paths.discard(clean)
+
+        try:
+            candidate = Path(clean)
+            if candidate.exists() and candidate.is_file():
+                candidate.unlink()
+        except Exception:
+            pass
+
+        self._save_pending_cleanup_state()
+
+    def _cleanup_unimported_downloads(self) -> None:
+        with self._cleanup_lock:
+            pending = self._generated_download_paths - self._imported_download_paths
+
+        for raw_path in sorted(pending):
+            try:
+                candidate = Path(raw_path)
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+            except Exception:
+                pass
+
+        if PENDING_YOUTUBE_DOWNLOADS_FILE.exists():
+            try:
+                PENDING_YOUTUBE_DOWNLOADS_FILE.unlink()
+            except Exception:
+                pass
+
     def choose_preview_source_file(self) -> None:
         path = filedialog.askopenfilename(
             title="Select file to prelisten in 33RPM",
@@ -419,6 +546,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         worker.start()
 
     def _load_youtube_data_worker(self, url: str) -> None:
+        downloaded_path = ""
         try:
             info = fetch_youtube_info(url)
             youtube_dir = self.youtube_dir_var.get().strip() or str(
@@ -437,6 +565,8 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                 started_at=started_at,
             )
 
+            self._track_generated_download(downloaded_path)
+
             self.youtube_info = info
             if self.root is not None:
                 self.root.after(
@@ -445,6 +575,10 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                 )
         except Exception as exc:
             if self.root is not None:
+                self.root.after(
+                    0,
+                    lambda path=downloaded_path: self._cleanup_download_file(path),
+                )
                 self.root.after(0, lambda: self._on_youtube_data_load_failed(str(exc)))
 
     def _on_youtube_data_loaded(self, info: dict, downloaded_path: str) -> None:
@@ -716,6 +850,8 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                 started_at=started_at,
             )
 
+            self._track_generated_download(downloaded_path)
+
             if not os.path.exists(downloaded_path):
                 raise RuntimeError(
                     "Audio download did not return a valid local file path."
@@ -757,6 +893,8 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                     actual_tags = dao.get_track_tags(track.ID)
                     imported_track_id = str(track.ID)
 
+                self._track_imported_download(downloaded_path)
+
             self.root.after(
                 0,
                 lambda: self._on_download_success(
@@ -766,6 +904,10 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                 ),
             )
         except Exception as exc:
+            self.root.after(
+                0,
+                lambda path=downloaded_path: self._cleanup_download_file(path),
+            )
             self.root.after(0, lambda: self._on_download_failure(str(exc)))
 
     def _on_download_success(
