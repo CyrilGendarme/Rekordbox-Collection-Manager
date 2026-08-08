@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import List, Optional, Callable
 import logging
+import threading
 
 from ..widgets import InfoLabel, TracksList
 from ...data.models import Track
@@ -24,6 +25,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
     _EDITABLE_COLS = {"name", "artist", "album", "year", "label", "genre", "bpm"}
 
     def __init__(self):
+        self.root: Optional[tk.Tk] = None
         self.filtered_tracks: List[Track] = []
         self.selected_track: Optional[Track] = None
         self.selected_tracks: List[Track] = []
@@ -31,6 +33,8 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         self.status_var = tk.StringVar(
             value="Select one or more tracks, then complete metadata or validate changes."
         )
+        self.complete_btn: Optional[ttk.Button] = None
+        self._is_completing_tracks_info = False
 
         self._edited_values: dict = {}
         self._original_values: dict = {}
@@ -41,6 +45,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
     # ------------------------------------------------------------------
 
     def build_main_tab(self, context: FeatureContext):
+        self.root = context.root
         self.controller = context.controller
         main_frame = ttk.Frame(context.notebook)
         context.notebook.add(main_frame, text="Tracks Info Completer")
@@ -106,11 +111,12 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
             command=self._on_standardize,
         ).pack(side=tk.LEFT, padx=(0, 8))
 
-        ttk.Button(
+        self.complete_btn = ttk.Button(
             btn_frame,
             text="Complete Tracks Info",
             command=self._on_complete_tracks_info,
-        ).pack(side=tk.LEFT, padx=(0, 8))
+        )
+        self.complete_btn.pack(side=tk.LEFT, padx=(0, 8))
 
         ttk.Button(
             btn_frame,
@@ -199,62 +205,116 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         self.status_var.set(f"Standardized {len(target_tracks)} track(s).")
 
     def _on_complete_tracks_info(self) -> None:
+        if self._is_completing_tracks_info:
+            self.status_var.set("Metadata completion is already running.")
+            return
+
         target_tracks = self._get_target_tracks()
 
         if not target_tracks:
             self.status_var.set("No tracks available to complete.")
             return
 
+        self._set_tracks_completion_running(
+            True,
+            f"Completing metadata for {len(target_tracks)} track(s)...",
+        )
+
+        worker = threading.Thread(
+            target=self._complete_tracks_info_worker,
+            args=(list(target_tracks),),
+            daemon=True,
+        )
+        worker.start()
+
+    def _set_tracks_completion_running(self, is_running: bool, status: str = "") -> None:
+        self._is_completing_tracks_info = is_running
+        if self.complete_btn is not None:
+            self.complete_btn.configure(state=tk.DISABLED if is_running else tk.NORMAL)
+        if status:
+            self.status_var.set(status)
+
+    def _complete_tracks_info_worker(self, target_tracks: List[Track]) -> None:
         changed_tracks = 0
         failed_tracks = 0
-        for track in target_tracks:
-            if track.album and track.label and track.year and track.year != 0:
-                continue  # Skip tracks that already have all metadata.
+        unexpected_error = ""
 
-            try:
-                completion = complete_track_metadata(
-                    title=track.name or "",
-                    artist=track.artist or "",
-                    album=track.album or "",
-                )
-            except Exception:
-                failed_tracks += 1
-                logger.exception(
-                    "Track metadata completion failed for track_id=%s title=%r artist=%r",
-                    track.id,
-                    track.name,
-                    track.artist,
-                )
-                continue
+        try:
+            for track in target_tracks:
+                if track.album and track.label and track.year and track.year != 0:
+                    continue  # Skip tracks that already have all metadata.
 
-            track_changed = False
-            edited = self._edited_values.setdefault(str(track.id), {})
+                try:
+                    completion = complete_track_metadata(
+                        title=track.name or "",
+                        artist=track.artist or "",
+                        album=track.album or "",
+                    )
+                except Exception:
+                    failed_tracks += 1
+                    logger.exception(
+                        "Track metadata completion failed for track_id=%s title=%r artist=%r",
+                        track.id,
+                        track.name,
+                        track.artist,
+                    )
+                    continue
 
-            if completion.album and completion.album != track.album:
-                track.album = completion.album
-                edited["album"] = completion.album
-                track_changed = True
+                track_changed = False
+                edited = self._edited_values.setdefault(str(track.id), {})
 
-            if completion.year is not None and completion.year != track.year:
-                track.year = completion.year
-                edited["year"] = completion.year
-                track_changed = True
+                if completion.album and completion.album != track.album:
+                    track.album = completion.album
+                    edited["album"] = completion.album
+                    track_changed = True
 
-            if completion.label and completion.label != track.label:
-                track.label = completion.label
-                edited["label"] = completion.label
-                track_changed = True
+                if completion.year is not None and completion.year != track.year:
+                    track.year = completion.year
+                    edited["year"] = completion.year
+                    track_changed = True
 
-            if track_changed:
-                changed_tracks += 1
+                if completion.label and completion.label != track.label:
+                    track.label = completion.label
+                    edited["label"] = completion.label
+                    track_changed = True
 
+                if track_changed:
+                    changed_tracks += 1
+        except Exception as exc:
+            logger.exception("Unexpected error during tracks metadata completion")
+            unexpected_error = str(exc)
+
+        if self.root is not None:
+            self.root.after(
+                0,
+                lambda: self._complete_tracks_info_finished(
+                    changed_tracks=changed_tracks,
+                    failed_tracks=failed_tracks,
+                    unexpected_error=unexpected_error,
+                ),
+            )
+
+    def _complete_tracks_info_finished(
+        self,
+        *,
+        changed_tracks: int,
+        failed_tracks: int,
+        unexpected_error: str,
+    ) -> None:
         self.tracks_list.set_tracks(self.tracks_list.get_tracks())
-        if failed_tracks:
+
+        if unexpected_error:
+            self.status_var.set(
+                f"Metadata completion failed: {unexpected_error}. See logs for details."
+            )
+        elif failed_tracks:
             self.status_var.set(
                 f"Completed metadata for {changed_tracks} track(s). Failed for {failed_tracks} track(s), see logs."
             )
         else:
             self.status_var.set(f"Completed metadata for {changed_tracks} track(s).")
+
+        self._set_tracks_completion_running(False)
 
     def _on_validate(self) -> None:
         """Emit the on_validate callback with (track_id, name, artist, album) tuples."""
