@@ -21,12 +21,14 @@ from src.services.audio_metadata_service import write_metadata_to_mp3
 from src.services import complete_track_metadata
 from src.core.to_33rpm.processing import render_33rpm_preview
 from src.data import RekordboxDAO
-from src.gui.tab_system import FeatureContext, TabFeature
+from src.gui.tab_system import ConfigSubtabFeature, FeatureContext
 from src.gui.widgets import AudioPreviewPlayer, ScrollableFrame
+from src.user_config import persist_setting, settings
 
 
-class YoutubeDownloadFeature(TabFeature):
+class YoutubeDownloadFeature(ConfigSubtabFeature):
     name = "youtube_download"
+    config_tab_title = "YouTube Download"
 
     def __init__(self):
         self.root: tk.Tk | None = None
@@ -36,7 +38,10 @@ class YoutubeDownloadFeature(TabFeature):
         self.youtube_info: dict = {}
 
         self.url_var = tk.StringVar()
-        self.youtube_dir_var = tk.StringVar(value=str(Path.cwd() / "youtube_downloads"))
+        configured_download_dir = (settings.YOUTUBE_DOWNLOADS_DIR or "").strip()
+        if not configured_download_dir:
+            configured_download_dir = str(Path.cwd() / "youtube_downloads")
+        self.youtube_dir_var = tk.StringVar(value=configured_download_dir)
 
         self.file_var = tk.StringVar(value="No file selected")
         self.preview_source_var = tk.StringVar(value="")
@@ -332,7 +337,38 @@ class YoutubeDownloadFeature(TabFeature):
     def _choose_youtube_dir(self) -> None:
         path = filedialog.askdirectory(title="Select download folder")
         if path:
-            self.youtube_dir_var.set(path)
+            self._apply_youtube_download_dir(path)
+
+    def _apply_youtube_download_dir(self, path: str) -> None:
+        cleaned = (path or "").strip()
+        if not cleaned:
+            return
+
+        self.youtube_dir_var.set(cleaned)
+        persist_setting("YOUTUBE_DOWNLOADS_DIR", cleaned)
+        self.status_var.set("YouTube downloads folder updated.")
+
+    def _create_config_widgets(self, context: FeatureContext, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+
+        wrapper = ttk.LabelFrame(parent, text="YouTube Download Folder", padding=10)
+        wrapper.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        wrapper.columnconfigure(1, weight=1)
+
+        ttk.Label(wrapper, text="Downloads folder:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(wrapper, textvariable=self.youtube_dir_var).grid(
+            row=0, column=1, sticky="ew", padx=(8, 8)
+        )
+        ttk.Button(wrapper, text="Choose Folder", command=self._choose_youtube_dir).grid(
+            row=0, column=2, sticky="e"
+        )
+
+        ttk.Button(
+            wrapper,
+            text="Apply",
+            style="Accent.TButton",
+            command=lambda: self._apply_youtube_download_dir(self.youtube_dir_var.get()),
+        ).grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
     def choose_preview_source_file(self) -> None:
         path = filedialog.askopenfilename(

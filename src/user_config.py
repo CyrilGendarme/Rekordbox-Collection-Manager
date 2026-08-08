@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     TRUNCATE_SILENCE_CHUNK_SIZE: int = 10  # in ms
     AUDIO_EXPORT_FORMAT: str = "mp3"
     TO_33RPM_OUTPUT_DIR: str = str(Path.cwd() / "to_33rpm_outputs")
+    YOUTUBE_DOWNLOADS_DIR: str = str(Path.cwd() / "youtube_downloads")
 
 
 settings = Settings()
