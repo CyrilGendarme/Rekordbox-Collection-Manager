@@ -393,13 +393,39 @@ class YoutubeDownloadFeature(TabFeature):
             self._set_busy(False)
 
     def validate_and_enrich_metadata(self) -> None:
+        if self._is_busy:
+            return
+
         metadata = self._validate_metadata_inputs(require_album=False)
         if metadata is None:
             return
 
         title, artist, album = metadata
-        completion = complete_track_metadata(title=title, artist=artist, album=album)
+        worker = threading.Thread(
+            target=self._validate_and_enrich_worker,
+            args=(title, artist, album),
+            daemon=True,
+        )
+        self._set_busy(True, "Enriching metadata...")
+        worker.start()
 
+    def _validate_and_enrich_worker(self, title: str, artist: str, album: str) -> None:
+        try:
+            completion = complete_track_metadata(
+                title=title, artist=artist, album=album
+            )
+            if self.root is not None:
+                self.root.after(
+                    0, lambda: self._on_validate_and_enrich_done(completion)
+                )
+        except Exception as exc:
+            if self.root is not None:
+                self.root.after(
+                    0,
+                    lambda: self._on_validate_and_enrich_failed(str(exc)),
+                )
+
+    def _on_validate_and_enrich_done(self, completion) -> None:
         if completion.album and completion.album != self.album_var.get().strip():
             self.album_var.set(completion.album)
         if not self.year_var.get().strip() and completion.year is not None:
@@ -408,14 +434,18 @@ class YoutubeDownloadFeature(TabFeature):
             self.label_var.set(completion.label)
 
         if completion.source:
-            self.status_var.set(f"Metadata enriched from {completion.source}.")
+            self._set_busy(False, f"Metadata enriched from {completion.source}.")
         else:
+            self._set_busy(False, "No metadata enrichment found.")
             messagebox.showwarning(
                 "No enrichment found",
                 "Could not retrieve extra metadata from Discogs/Bandcamp for this query.",
                 parent=self.root,
             )
-            self.status_var.set("No metadata enrichment found.")
+
+    def _on_validate_and_enrich_failed(self, details: str) -> None:
+        self._set_busy(False, "Metadata enrichment failed.")
+        self._show_error("Enrichment failed", details)
 
     def select_file(self) -> None:
         path = filedialog.askopenfilename(
