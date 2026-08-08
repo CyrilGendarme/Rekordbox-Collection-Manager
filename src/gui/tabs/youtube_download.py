@@ -367,30 +367,66 @@ class YoutubeDownloadFeature(TabFeature):
             self._show_error("Missing URL", "Please provide a YouTube URL.")
             return
 
+        worker = threading.Thread(
+            target=self._load_youtube_data_worker,
+            args=(url,),
+            daemon=True,
+        )
+        self._set_busy(True, "Loading YouTube metadata and file...")
+        worker.start()
+
+    def _load_youtube_data_worker(self, url: str) -> None:
         try:
-            self._set_busy(True, "Loading YouTube metadata...")
             info = fetch_youtube_info(url)
+            youtube_dir = self.youtube_dir_var.get().strip() or str(
+                Path.cwd() / "youtube_downloads"
+            )
+            os.makedirs(youtube_dir, exist_ok=True)
+            started_at = time.time()
+            clean_url = remove_playlist_param(url)
+
+            downloaded = download_audio_as_mp3(clean_url, youtube_dir)
+            downloaded_path = resolve_downloaded_path(
+                downloaded_path=downloaded,
+                title=(info.get("track") or info.get("title") or "").strip(),
+                youtube_title=info.get("title", ""),
+                youtube_dir=youtube_dir,
+                started_at=started_at,
+            )
+
             self.youtube_info = info
-
-            title = (info.get("track") or info.get("title") or "").strip()
-            artist = (info.get("artist") or info.get("uploader") or "").strip()
-            album = (info.get("album") or "").strip()
-
-            self.video_title_var.set(info.get("title", ""))
-            self.track_title_var.set(title)
-            self.artist_var.set(artist)
-            self.album_var.set(album)
-            self.year_var.set(str(info.get("release_year") or ""))
-
-            if self.available_genres and not self.genre_var.get().strip():
-                self.genre_var.set(self.available_genres[0])
-
-            self.status_var.set("YouTube metadata loaded.")
+            if self.root is not None:
+                self.root.after(
+                    0,
+                    lambda: self._on_youtube_data_loaded(info, downloaded_path),
+                )
         except Exception as exc:
-            self._show_error("Load failed", f"Could not load YouTube data:\n{exc}")
-            self.status_var.set("Failed to load YouTube metadata.")
-        finally:
-            self._set_busy(False)
+            if self.root is not None:
+                self.root.after(0, lambda: self._on_youtube_data_load_failed(str(exc)))
+
+    def _on_youtube_data_loaded(self, info: dict, downloaded_path: str) -> None:
+        title = (info.get("track") or info.get("title") or "").strip()
+        artist = (info.get("artist") or info.get("uploader") or "").strip()
+        album = (info.get("album") or "").strip()
+
+        self.video_title_var.set(info.get("title", ""))
+        self.track_title_var.set(title)
+        self.artist_var.set(artist)
+        self.album_var.set(album)
+        self.year_var.set(str(info.get("release_year") or ""))
+
+        if self.available_genres and not self.genre_var.get().strip():
+            self.genre_var.set(self.available_genres[0])
+
+        self.selected_file = downloaded_path
+        self.file_var.set(downloaded_path)
+        self.preview_source_var.set(downloaded_path)
+
+        self._set_busy(False, "YouTube metadata and file loaded.")
+
+    def _on_youtube_data_load_failed(self, details: str) -> None:
+        self._set_busy(False, "Failed to load YouTube metadata or file.")
+        self._show_error("Load failed", f"Could not load YouTube data:\n{details}")
 
     def validate_and_enrich_metadata(self) -> None:
         if self._is_busy:
