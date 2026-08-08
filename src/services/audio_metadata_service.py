@@ -22,6 +22,17 @@ class CompletedMetadata:
     source: str = ""
 
 
+def _metadata_is_complete(metadata: CompletedMetadata) -> bool:
+    return bool(metadata.album and metadata.year is not None and metadata.label)
+
+
+def _merge_sources(existing: str, new_source: str) -> str:
+    existing_parts = [part.strip() for part in existing.split("+") if part.strip()]
+    if new_source and new_source not in existing_parts:
+        existing_parts.append(new_source)
+    return " + ".join(existing_parts)
+
+
 def write_metadata_to_mp3(
     file_path: str,
     title: str,
@@ -73,60 +84,84 @@ def complete_track_metadata(
             album=normalized_album,
         )
 
+    completed_album = normalized_album
+    completed_year: int | None = None
+    completed_label = ""
+    completed_source = ""
+    discogs_catno = ""
+
     discogs_data = lookup_discogs_metadata(
         title=normalized_title,
         artist=normalized_artist,
         album=normalized_album,
     )
     if discogs_data:
-        album_candidate = normalized_album or str(discogs_data.get("album") or "")
-        return CompletedMetadata(
-            title=normalized_title,
-            artist=normalized_artist,
-            album=append_album_ref(
-                album_candidate,
-                str(discogs_data.get("catno") or ""),
-            ),
-            year=_coerce_year(discogs_data.get("year")),
-            label=str(discogs_data.get("label") or "").strip(),
-            source="Discogs",
-        )
+        completed_source = _merge_sources(completed_source, "Discogs")
+        discogs_album = str(discogs_data.get("album") or "").strip()
+        discogs_catno = str(discogs_data.get("catno") or "").strip()
 
-    bandcamp_data = first_result_from_bandcamp_search(
+        if not completed_album:
+            completed_album = discogs_album
+        if completed_year is None:
+            completed_year = _coerce_year(discogs_data.get("year"))
+        if not completed_label:
+            completed_label = str(discogs_data.get("label") or "").strip()
+
+    current_metadata = CompletedMetadata(
         title=normalized_title,
         artist=normalized_artist,
+        album=append_album_ref(completed_album, discogs_catno),
+        year=completed_year,
+        label=completed_label,
+        source=completed_source,
     )
-    if bandcamp_data:
-        return CompletedMetadata(
-            title=normalized_title,
-            artist=normalized_artist,
-            album=bandcamp_data.album_name,
-            label=bandcamp_data.label_name,
-            year=_coerce_year(bandcamp_data.release_year),
-            source="Bandcamp",
-        )
 
-    mb_album = lookup_musicbrainz_album(
-        query=f"{normalized_artist} - {normalized_title}",
-        limit=3,
-    )
-    if mb_album and mb_album.get("album_title") != "":
-        return CompletedMetadata(
+    if not _metadata_is_complete(current_metadata):
+        bandcamp_data = first_result_from_bandcamp_search(
             title=normalized_title,
             artist=normalized_artist,
-            album=mb_album.get("album_title", "").strip(),
-            source="MusicBrainz",
-            year=(
-                mb_album.get("album_release_date", "").split("-")[0]
-                if mb_album.get("album_release_date")
-                else None
-            ),
         )
+        if bandcamp_data:
+            completed_source = _merge_sources(completed_source, "Bandcamp")
+            if not completed_album and bandcamp_data.album_name:
+                completed_album = bandcamp_data.album_name.strip()
+            if completed_year is None:
+                completed_year = _coerce_year(bandcamp_data.release_year)
+            if not completed_label and bandcamp_data.label_name:
+                completed_label = bandcamp_data.label_name.strip()
+
+            current_metadata = CompletedMetadata(
+                title=normalized_title,
+                artist=normalized_artist,
+                album=append_album_ref(completed_album, discogs_catno),
+                year=completed_year,
+                label=completed_label,
+                source=completed_source,
+            )
+
+    if not _metadata_is_complete(current_metadata):
+        mb_album = lookup_musicbrainz_album(
+            query=f"{normalized_artist} - {normalized_title}",
+            limit=3,
+        )
+        if mb_album and mb_album.get("album_title") != "":
+            completed_source = _merge_sources(completed_source, "MusicBrainz")
+            if not completed_album:
+                completed_album = str(mb_album.get("album_title", "")).strip()
+            if completed_year is None:
+                completed_year = _coerce_year(
+                    mb_album.get("album_release_date", "").split("-")[0]
+                    if mb_album.get("album_release_date")
+                    else None
+                )
 
     return CompletedMetadata(
         title=normalized_title,
         artist=normalized_artist,
-        album=normalized_album,
+        album=append_album_ref(completed_album, discogs_catno),
+        year=completed_year,
+        label=completed_label,
+        source=completed_source,
     )
 
 
