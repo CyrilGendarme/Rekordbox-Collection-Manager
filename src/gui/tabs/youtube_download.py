@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import platform
 import tempfile
 import threading
 import time
@@ -23,7 +22,7 @@ from src.services import complete_track_metadata
 from src.core.to_33rpm.processing import render_33rpm_preview
 from src.data import RekordboxDAO
 from src.gui.tab_system import FeatureContext, TabFeature
-from src.gui.widgets import ScrollableFrame
+from src.gui.widgets import AudioPreviewPlayer, ScrollableFrame
 
 
 class YoutubeDownloadFeature(TabFeature):
@@ -57,6 +56,7 @@ class YoutubeDownloadFeature(TabFeature):
 
         self.tags_frame: ttk.LabelFrame | None = None
         self.genre_combobox: ttk.Combobox | None = None
+        self.preview_player: AudioPreviewPlayer | None = None
 
         self._is_busy = False
         self.status_var = tk.StringVar(value="Ready")
@@ -226,17 +226,20 @@ class YoutubeDownloadFeature(TabFeature):
             command=self.download_and_add_to_rekordbox,
         ).grid(row=0, column=3, sticky="e")
 
+        self.preview_player = AudioPreviewPlayer(wrapper, title="In-app preview player")
+        self.preview_player.frame.grid(row=14, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+
         help_text = (
             "Flow: 1) Enter one URL  2) Load YouTube data  3) Validate title+artist "
             "4) Enrich metadata  5) Download + Add to Rekordbox"
         )
         ttk.Label(wrapper, text=help_text, anchor="w", style="Dim.TLabel").grid(
-            row=14, column=0, columnspan=3, sticky="ew"
+            row=15, column=0, columnspan=3, sticky="ew"
         )
 
         ttk.Label(
             wrapper, textvariable=self.status_var, style="Dim.TLabel", anchor="w"
-        ).grid(row=15, column=0, columnspan=3, sticky="ew")
+        ).grid(row=16, column=0, columnspan=3, sticky="ew")
 
     def _set_busy(self, value: bool, status: str = "") -> None:
         self._is_busy = value
@@ -341,6 +344,8 @@ class YoutubeDownloadFeature(TabFeature):
         )
         if path:
             self.preview_source_var.set(path)
+            if self.preview_player is not None:
+                self.preview_player.load_audio(path)
             self.status_var.set("Prelisten source selected.")
 
     def use_loaded_file_for_preview(self) -> None:
@@ -353,6 +358,8 @@ class YoutubeDownloadFeature(TabFeature):
             return
 
         self.preview_source_var.set(source)
+        if self.preview_player is not None:
+            self.preview_player.load_audio(source)
         self.status_var.set("Loaded file selected as prelisten source.")
 
     def _get_preview_source_path(self) -> str:
@@ -499,6 +506,8 @@ class YoutubeDownloadFeature(TabFeature):
         self.file_var.set(path)
         if not self.preview_source_var.get().strip():
             self.preview_source_var.set(path)
+        if self.preview_player is not None:
+            self.preview_player.load_audio(path)
         self.status_var.set("Local file selected.")
 
     def try_33rpm_preview(self) -> None:
@@ -542,45 +551,31 @@ class YoutubeDownloadFeature(TabFeature):
 
     def _on_33rpm_preview_ready(self, preview_path: Path) -> None:
         self._set_busy(False, f"33RPM preview ready: {preview_path}")
+        self.preview_source_var.set(str(preview_path))
 
-        try:
-            self._open_file_with_default_app(preview_path)
-            messagebox.showinfo(
-                "33RPM preview",
-                f"Preview rendered and opened:\n{preview_path}",
-                parent=self.root,
-            )
-        except Exception:
-            messagebox.showinfo(
-                "33RPM preview",
-                f"Preview rendered at:\n{preview_path}",
-                parent=self.root,
-            )
+        if self.preview_player is not None:
+            if not self.preview_player.load_audio(preview_path):
+                self._show_error(
+                    "33RPM preview failed",
+                    f"The rendered preview could not be loaded:\n{preview_path}",
+                )
+                return
+
+            try:
+                self.preview_player.play(0.0)
+            except Exception as exc:
+                self._show_error("33RPM preview failed", str(exc))
+                return
+
+        messagebox.showinfo(
+            "33RPM preview",
+            f"Preview rendered and loaded in player:\n{preview_path}",
+            parent=self.root,
+        )
 
     def _on_33rpm_preview_failed(self, details: str) -> None:
         self._set_busy(False, "33RPM preview failed.")
         self._show_error("33RPM preview failed", details)
-
-    @staticmethod
-    def _open_file_with_default_app(path: Path) -> None:
-        if hasattr(os, "startfile"):
-            os.startfile(str(path))
-            return
-
-        system = platform.system().lower()
-        if system == "darwin":
-            import subprocess
-
-            subprocess.Popen(["open", str(path)])
-            return
-
-        if system == "linux":
-            import subprocess
-
-            subprocess.Popen(["xdg-open", str(path)])
-            return
-
-        raise RuntimeError(f"No default app opener available for platform: {system}")
 
     def save_metadata(self) -> None:
         if not self.selected_file:
