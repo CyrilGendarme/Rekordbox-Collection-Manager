@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from scipy.signal import resample, resample_poly
+
+from src.core.to_33rpm.io_audio import read_audio, write_audio
 
 
 SOURCE_RPM = 45.0
@@ -56,3 +59,22 @@ def emulate_45_played_at_33(audio: np.ndarray, config: ProcessConfig) -> np.ndar
             slowed = (slowed / peak) * target_peak
 
     return slowed.astype(np.float64, copy=False)
+
+
+def render_33rpm_preview(
+    input_path: str | Path,
+    output_path: str | Path,
+    config: ProcessConfig | None = None,
+) -> Path:
+    source_path = Path(input_path)
+    destination_path = Path(output_path)
+    audio, meta = read_audio(source_path)
+    processed = emulate_45_played_at_33(
+        audio,
+        config
+        or ProcessConfig(
+            method="polyphase", normalize=True, target_peak_dbfs=-1.0
+        ),
+    )
+    write_audio(destination_path, processed, meta)
+    return destination_path

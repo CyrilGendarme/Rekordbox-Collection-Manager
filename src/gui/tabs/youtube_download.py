@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -15,10 +17,10 @@ from src.core.youtube_download.actions import (
     remove_playlist_param,
     resolve_downloaded_path,
     save_sidecar_json,
-    write_metadata_to_mp3,
 )
 from src.services.audio_metadata_service import write_metadata_to_mp3
 from src.services import complete_track_metadata
+from src.core.to_33rpm.processing import render_33rpm_preview
 from src.data import RekordboxDAO
 from src.gui.tab_system import FeatureContext, TabFeature
 from src.gui.widgets import ScrollableFrame
@@ -38,6 +40,7 @@ class YoutubeDownloadFeature(TabFeature):
         self.youtube_dir_var = tk.StringVar(value=str(Path.cwd() / "youtube_downloads"))
 
         self.file_var = tk.StringVar(value="No file selected")
+        self.preview_source_var = tk.StringVar(value="")
         self.video_title_var = tk.StringVar()
         self.track_title_var = tk.StringVar()
         self.artist_var = tk.StringVar()
@@ -45,6 +48,7 @@ class YoutubeDownloadFeature(TabFeature):
         self.year_var = tk.StringVar()
         self.label_var = tk.StringVar()
         self.genre_var = tk.StringVar()
+        self.import_original_to_rekordbox_var = tk.BooleanVar(value=True)
 
         self.available_genres: list[str] = []
         self.available_tags: list[str] = []
@@ -110,50 +114,71 @@ class YoutubeDownloadFeature(TabFeature):
             row=2, column=2, sticky="e"
         )
 
-        ttk.Label(wrapper, text="YouTube title:").grid(
+        ttk.Label(wrapper, text="Prelisten source:").grid(
             row=3, column=0, sticky="w"
         )
-        ttk.Entry(wrapper, textvariable=self.video_title_var, state="readonly").grid(
-            row=3, column=1, columnspan=2, sticky="ew"
+        ttk.Entry(wrapper, textvariable=self.preview_source_var).grid(
+            row=3, column=1, sticky="ew"
         )
+        preview_actions = ttk.Frame(wrapper)
+        preview_actions.grid(row=3, column=2, sticky="e")
+        ttk.Button(
+            preview_actions, text="Use loaded", command=self.use_loaded_file_for_preview
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            preview_actions, text="Choose", command=self.choose_preview_source_file
+        ).pack(side=tk.LEFT, padx=(6, 0))
 
-        ttk.Label(wrapper, text="Track title:").grid(
-            row=4, column=0, sticky="w"
-        )
-        ttk.Entry(wrapper, textvariable=self.track_title_var).grid(
-            row=4, column=1, columnspan=2, sticky="ew"
-        )
+        ttk.Checkbutton(
+            wrapper,
+            text="Also import original track into Rekordbox collection",
+            variable=self.import_original_to_rekordbox_var,
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
-        ttk.Label(wrapper, text="Artist name:").grid(
+        ttk.Label(wrapper, text="YouTube title:").grid(
             row=5, column=0, sticky="w"
         )
-        ttk.Entry(wrapper, textvariable=self.artist_var).grid(
+        ttk.Entry(wrapper, textvariable=self.video_title_var, state="readonly").grid(
             row=5, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Album name:").grid(
+        ttk.Label(wrapper, text="Track title:").grid(
             row=6, column=0, sticky="w"
         )
-        ttk.Entry(wrapper, textvariable=self.album_var).grid(
+        ttk.Entry(wrapper, textvariable=self.track_title_var).grid(
             row=6, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Year:").grid(
+        ttk.Label(wrapper, text="Artist name:").grid(
             row=7, column=0, sticky="w"
         )
-        ttk.Entry(wrapper, textvariable=self.year_var).grid(
+        ttk.Entry(wrapper, textvariable=self.artist_var).grid(
             row=7, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Label:").grid(
+        ttk.Label(wrapper, text="Album name:").grid(
             row=8, column=0, sticky="w"
         )
-        ttk.Entry(wrapper, textvariable=self.label_var).grid(
+        ttk.Entry(wrapper, textvariable=self.album_var).grid(
             row=8, column=1, columnspan=2, sticky="ew"
         )
 
-        ttk.Label(wrapper, text="Genre:").grid(
+        ttk.Label(wrapper, text="Year:").grid(
             row=9, column=0, sticky="w"
+        )
+        ttk.Entry(wrapper, textvariable=self.year_var).grid(
+            row=9, column=1, columnspan=2, sticky="ew"
+        )
+
+        ttk.Label(wrapper, text="Label:").grid(
+            row=10, column=0, sticky="w"
+        )
+        ttk.Entry(wrapper, textvariable=self.label_var).grid(
+            row=10, column=1, columnspan=2, sticky="ew"
+        )
+
+        ttk.Label(wrapper, text="Genre:").grid(
+            row=11, column=0, sticky="w"
         )
         self.genre_combobox = ttk.Combobox(
             wrapper,
@@ -162,22 +187,23 @@ class YoutubeDownloadFeature(TabFeature):
             state="readonly" if self.available_genres else "normal",
         )
         self.genre_combobox.grid(
-            row=9, column=1, columnspan=2, sticky="ew"
+            row=11, column=1, columnspan=2, sticky="ew"
         )
 
         self.tags_frame = ttk.LabelFrame(wrapper, text="Tags from Rekordbox")
         self.tags_frame.grid(
-            row=10, column=0, columnspan=3, sticky="ew"
+            row=12, column=0, columnspan=3, sticky="ew"
         )
         for column in range(5):
             self.tags_frame.columnconfigure(column, weight=1)
         self._build_tag_checkboxes()
 
         btn_row = ttk.Frame(wrapper)
-        btn_row.grid(row=11, column=0, columnspan=3, sticky="ew")
+        btn_row.grid(row=13, column=0, columnspan=3, sticky="ew")
         btn_row.columnconfigure(0, weight=1)
         btn_row.columnconfigure(1, weight=1)
         btn_row.columnconfigure(2, weight=1)
+        btn_row.columnconfigure(3, weight=1)
 
         ttk.Button(
             btn_row,
@@ -189,24 +215,28 @@ class YoutubeDownloadFeature(TabFeature):
             row=0, column=1, sticky="w"
         )
 
+        ttk.Button(btn_row, text="Try 33RPM", command=self.try_33rpm_preview).grid(
+            row=0, column=2, sticky="w"
+        )
+
         ttk.Button(
             btn_row,
             text="Download + Add to Rekordbox",
             style="Accent.TButton",
             command=self.download_and_add_to_rekordbox,
-        ).grid(row=0, column=2, sticky="e")
+        ).grid(row=0, column=3, sticky="e")
 
         help_text = (
             "Flow: 1) Enter one URL  2) Load YouTube data  3) Validate title+artist "
             "4) Enrich metadata  5) Download + Add to Rekordbox"
         )
         ttk.Label(wrapper, text=help_text, anchor="w", style="Dim.TLabel").grid(
-            row=12, column=0, columnspan=3, sticky="ew"
+            row=14, column=0, columnspan=3, sticky="ew"
         )
 
         ttk.Label(
             wrapper, textvariable=self.status_var, style="Dim.TLabel", anchor="w"
-        ).grid(row=13, column=0, columnspan=3, sticky="ew")
+        ).grid(row=15, column=0, columnspan=3, sticky="ew")
 
     def _set_busy(self, value: bool, status: str = "") -> None:
         self._is_busy = value
@@ -301,6 +331,33 @@ class YoutubeDownloadFeature(TabFeature):
         if path:
             self.youtube_dir_var.set(path)
 
+    def choose_preview_source_file(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select file to prelisten in 33RPM",
+            filetypes=[
+                ("Audio files", "*.mp3 *.m4a *.aac *.wav *.flac *.ogg *.opus"),
+                ("All files", "*.*"),
+            ],
+        )
+        if path:
+            self.preview_source_var.set(path)
+            self.status_var.set("Prelisten source selected.")
+
+    def use_loaded_file_for_preview(self) -> None:
+        source = self.selected_file.strip()
+        if not source:
+            self._show_error(
+                "Missing file",
+                "Choose or download an audio file first, then reuse it for prelisten.",
+            )
+            return
+
+        self.preview_source_var.set(source)
+        self.status_var.set("Loaded file selected as prelisten source.")
+
+    def _get_preview_source_path(self) -> str:
+        return self.preview_source_var.get().strip() or self.selected_file.strip()
+
     def load_youtube_data(self) -> None:
         if self._is_busy:
             return
@@ -374,7 +431,90 @@ class YoutubeDownloadFeature(TabFeature):
 
         self.selected_file = path
         self.file_var.set(path)
+        if not self.preview_source_var.get().strip():
+            self.preview_source_var.set(path)
         self.status_var.set("Local file selected.")
+
+    def try_33rpm_preview(self) -> None:
+        if self._is_busy:
+            return
+
+        source_path = self._get_preview_source_path()
+        if not source_path:
+            self._show_error(
+                "Missing source file",
+                "Select a local file or use the loaded download as the prelisten source.",
+            )
+            return
+
+        worker = threading.Thread(
+            target=self._try_33rpm_worker,
+            args=(source_path,),
+            daemon=True,
+        )
+        self._set_busy(True, "Rendering 33RPM preview...")
+        worker.start()
+
+    def _try_33rpm_worker(self, source_path: str) -> None:
+        try:
+            source_file = Path(source_path)
+            if not source_file.is_file():
+                raise FileNotFoundError(f"Source file not found: {source_path}")
+
+            preview_dir = (
+                Path(tempfile.gettempdir())
+                / "rekordbox_collection_manager"
+                / "youtube_33rpm_preview"
+            )
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            preview_path = preview_dir / f"{source_file.stem}_33rpm.wav"
+
+            render_33rpm_preview(source_file, preview_path)
+            self.root.after(0, lambda: self._on_33rpm_preview_ready(preview_path))
+        except Exception as exc:
+            self.root.after(0, lambda: self._on_33rpm_preview_failed(str(exc)))
+
+    def _on_33rpm_preview_ready(self, preview_path: Path) -> None:
+        self._set_busy(False, f"33RPM preview ready: {preview_path}")
+
+        try:
+            self._open_file_with_default_app(preview_path)
+            messagebox.showinfo(
+                "33RPM preview",
+                f"Preview rendered and opened:\n{preview_path}",
+                parent=self.root,
+            )
+        except Exception:
+            messagebox.showinfo(
+                "33RPM preview",
+                f"Preview rendered at:\n{preview_path}",
+                parent=self.root,
+            )
+
+    def _on_33rpm_preview_failed(self, details: str) -> None:
+        self._set_busy(False, "33RPM preview failed.")
+        self._show_error("33RPM preview failed", details)
+
+    @staticmethod
+    def _open_file_with_default_app(path: Path) -> None:
+        if hasattr(os, "startfile"):
+            os.startfile(str(path))
+            return
+
+        system = platform.system().lower()
+        if system == "darwin":
+            import subprocess
+
+            subprocess.Popen(["open", str(path)])
+            return
+
+        if system == "linux":
+            import subprocess
+
+            subprocess.Popen(["xdg-open", str(path)])
+            return
+
+        raise RuntimeError(f"No default app opener available for platform: {system}")
 
     def save_metadata(self) -> None:
         if not self.selected_file:
@@ -499,42 +639,65 @@ class YoutubeDownloadFeature(TabFeature):
                 self.youtube_info
             )
 
-            with RekordboxDAO() as dao:
-                track = dao.add_audio_file_as_track(downloaded_path)
+            actual_tags = selected_tags
+            imported_track_id = ""
+            if self.import_original_to_rekordbox_var.get():
+                with RekordboxDAO() as dao:
+                    track = dao.add_audio_file_as_track(downloaded_path)
 
-                dao.set_track_metadata_in_rekordbox(
-                    track_id=track.ID,
-                    title=title,
-                    artist=artist,
-                    album=album,
-                    label=label_text,
-                    year=year,
-                    genre=genre_text,
-                    tags=selected_tags,
-                )
+                    dao.set_track_metadata_in_rekordbox(
+                        track_id=track.ID,
+                        title=title,
+                        artist=artist,
+                        album=album,
+                        label=label_text,
+                        year=year,
+                        genre=genre_text,
+                        tags=selected_tags,
+                    )
 
-            with RekordboxDAO() as dao:
-                actual_tags = dao.get_track_tags(track.ID)
+                with RekordboxDAO() as dao:
+                    actual_tags = dao.get_track_tags(track.ID)
+                    imported_track_id = str(track.ID)
 
             self.root.after(
                 0,
-                lambda: self._on_download_success(downloaded_path, actual_tags),
+                lambda: self._on_download_success(
+                    downloaded_path,
+                    actual_tags,
+                    imported_track_id,
+                ),
             )
         except Exception as exc:
             self.root.after(0, lambda: self._on_download_failure(str(exc)))
 
     def _on_download_success(
-        self, downloaded_path: str, actual_tags: list[str]
+        self,
+        downloaded_path: str,
+        actual_tags: list[str],
+        imported_track_id: str = "",
     ) -> None:
         self.selected_file = downloaded_path
         self.file_var.set(downloaded_path)
+        if not self.preview_source_var.get().strip():
+            self.preview_source_var.set(downloaded_path)
         self._set_selected_tags(actual_tags)
-        self._set_busy(False, "Download/import completed successfully.")
+        if imported_track_id:
+            self._set_busy(False, "Download/import completed successfully.")
+        else:
+            self._set_busy(False, "Download completed successfully.")
 
         messagebox.showinfo(
             "Success",
-            "Track downloaded and added to Rekordbox collection successfully.\n"
-            f"Local file: {downloaded_path}",
+            (
+                "Track downloaded successfully.\n"
+                f"Local file: {downloaded_path}\n"
+                + (
+                    "Imported to Rekordbox collection."
+                    if imported_track_id
+                    else "Original track import to Rekordbox was skipped."
+                )
+            ),
             parent=self.root,
         )
 
