@@ -220,6 +220,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         btn_row.columnconfigure(1, weight=1)
         btn_row.columnconfigure(2, weight=1)
         btn_row.columnconfigure(3, weight=1)
+        btn_row.columnconfigure(4, weight=1)
 
         ttk.Button(
             btn_row,
@@ -237,10 +238,16 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
 
         ttk.Button(
             btn_row,
+            text="Add 33RPM to Rekordbox",
+            command=self.add_33rpm_to_rekordbox,
+        ).grid(row=0, column=3, sticky="w")
+
+        ttk.Button(
+            btn_row,
             text="Download + Add to Rekordbox",
             style="Accent.TButton",
             command=self.download_and_add_to_rekordbox,
-        ).grid(row=0, column=3, sticky="e")
+        ).grid(row=0, column=4, sticky="e")
 
         self.preview_player = AudioPreviewPlayer(wrapper, title="In-app preview player")
         self.preview_player.frame.grid(row=14, column=0, columnspan=3, sticky="ew", pady=(8, 0))
@@ -542,46 +549,24 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             args=(url,),
             daemon=True,
         )
-        self._set_busy(True, "Loading YouTube metadata and file...")
+        self._set_busy(True, "Loading YouTube metadata...")
         worker.start()
 
     def _load_youtube_data_worker(self, url: str) -> None:
-        downloaded_path = ""
         try:
             info = fetch_youtube_info(url)
-            youtube_dir = self.youtube_dir_var.get().strip() or str(
-                Path.cwd() / "youtube_downloads"
-            )
-            os.makedirs(youtube_dir, exist_ok=True)
-            started_at = time.time()
-            clean_url = remove_playlist_param(url)
-
-            downloaded = download_audio_as_mp3(clean_url, youtube_dir)
-            downloaded_path = resolve_downloaded_path(
-                downloaded_path=downloaded,
-                title=(info.get("track") or info.get("title") or "").strip(),
-                youtube_title=info.get("title", ""),
-                youtube_dir=youtube_dir,
-                started_at=started_at,
-            )
-
-            self._track_generated_download(downloaded_path)
 
             self.youtube_info = info
             if self.root is not None:
                 self.root.after(
                     0,
-                    lambda: self._on_youtube_data_loaded(info, downloaded_path),
+                    lambda: self._on_youtube_data_loaded(info),
                 )
         except Exception as exc:
             if self.root is not None:
-                self.root.after(
-                    0,
-                    lambda path=downloaded_path: self._cleanup_download_file(path),
-                )
-                self.root.after(0, lambda: self._on_youtube_data_load_failed(str(exc)))
+                self.root.after(0, lambda error=str(exc): self._on_youtube_data_load_failed(error))
 
-    def _on_youtube_data_loaded(self, info: dict, downloaded_path: str) -> None:
+    def _on_youtube_data_loaded(self, info: dict) -> None:
         title = (info.get("track") or info.get("title") or "").strip()
         artist = (info.get("artist") or info.get("uploader") or "").strip()
         album = (info.get("album") or "").strip()
@@ -595,14 +580,15 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         if self.available_genres and not self.genre_var.get().strip():
             self.genre_var.set(self.available_genres[0])
 
-        self.selected_file = downloaded_path
-        self.file_var.set(downloaded_path)
-        self.preview_source_var.set(downloaded_path)
+        # Clear old file references so 33RPM uses the new track, not the previous one
+        self.selected_file = ""
+        self.file_var.set("No file selected")
+        self.preview_source_var.set("")
 
-        self._set_busy(False, "YouTube metadata and file loaded.")
+        self._set_busy(False, "YouTube metadata loaded. You can now download the audio.")
 
     def _on_youtube_data_load_failed(self, details: str) -> None:
-        self._set_busy(False, "Failed to load YouTube metadata or file.")
+        self._set_busy(False, "Failed to load YouTube metadata.")
         self._show_error("Load failed", f"Could not load YouTube data:\n{details}")
 
     def validate_and_enrich_metadata(self) -> None:
@@ -685,19 +671,84 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             return
 
         source_path = self._get_preview_source_path()
-        if not source_path:
-            self._show_error(
-                "Missing source file",
-                "Select a local file or use the loaded download as the prelisten source.",
+        
+        # If no source file exists, we need to download it first
+        if not source_path or not os.path.exists(source_path):
+            url = self.url_var.get().strip()
+            if not url:
+                self._show_error(
+                    "Missing source file",
+                    "No audio file available. Please load YouTube data first.",
+                )
+                return
+            
+            # Download audio first, then do 33RPM
+            worker = threading.Thread(
+                target=self._download_then_33rpm_worker,
+                args=(url,),
+                daemon=True,
             )
+            self._set_busy(True, "Downloading audio for 33RPM preview...")
+            worker.start()
             return
 
+        # Audio file exists, proceed with 33RPM rendering
         worker = threading.Thread(
             target=self._try_33rpm_worker,
             args=(source_path,),
             daemon=True,
         )
         self._set_busy(True, "Rendering 33RPM preview...")
+        worker.start()
+
+    def _download_then_33rpm_worker(self, url: str) -> None:
+        """Download audio and then render 33RPM preview."""
+        try:
+            youtube_dir = self.youtube_dir_var.get().strip() or str(
+                Path.cwd() / "youtube_downloads"
+            )
+            os.makedirs(youtube_dir, exist_ok=True)
+            started_at = time.time()
+            clean_url = remove_playlist_param(url)
+
+            # Download the audio file
+            downloaded = download_audio_as_mp3(clean_url, youtube_dir)
+            downloaded_path = resolve_downloaded_path(
+                downloaded_path=downloaded,
+                title=(self.track_title_var.get() or self.video_title_var.get() or "").strip(),
+                youtube_title=self.video_title_var.get().strip(),
+                youtube_dir=youtube_dir,
+                started_at=started_at,
+            )
+
+            if not os.path.exists(downloaded_path):
+                raise RuntimeError("Audio download failed: file not found.")
+
+            # Store the downloaded path for future use
+            self.selected_file = downloaded_path
+            self.file_var.set(downloaded_path)
+            self._track_generated_download(downloaded_path)
+            
+            # Mark as imported so local file is preserved even if 33RPM rendering fails
+            # The downloaded file is valid and useful independently
+            self._track_imported_download(downloaded_path)
+
+            # Now render 33RPM preview
+            self.root.after(
+                0,
+                lambda path=downloaded_path: self._render_33rpm_from_path(path),
+            )
+        except Exception as exc:
+            self.root.after(0, lambda error=str(exc): self._on_33rpm_preview_failed(error))
+
+    def _render_33rpm_from_path(self, source_path: str) -> None:
+        """Render 33RPM preview from an already-available audio path."""
+        self._set_busy(True, "Rendering 33RPM preview...")
+        worker = threading.Thread(
+            target=self._try_33rpm_worker,
+            args=(source_path,),
+            daemon=True,
+        )
         worker.start()
 
     def _try_33rpm_worker(self, source_path: str) -> None:
@@ -746,6 +797,98 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
     def _on_33rpm_preview_failed(self, details: str) -> None:
         self._set_busy(False, "33RPM preview failed.")
         self._show_error("33RPM preview failed", details)
+
+    def add_33rpm_to_rekordbox(self) -> None:
+        """Add the 33RPM preview track to Rekordbox collection."""
+        if self._is_busy:
+            return
+
+        preview_path = self.preview_source_var.get().strip()
+        if not preview_path or not preview_path.endswith("_33rpm.wav"):
+            self._show_error(
+                "No 33RPM preview",
+                "Please render a 33RPM preview first using the 'Try 33RPM' button.",
+            )
+            return
+
+        if not os.path.exists(preview_path):
+            self._show_error(
+                "File not found",
+                f"The 33RPM preview file was not found:\n{preview_path}",
+            )
+            return
+
+        # Gather metadata from form
+        title = self.track_title_var.get().strip()
+        artist = self.artist_var.get().strip()
+        album = self.album_var.get().strip()
+        year_text = self.year_var.get().strip()
+        label_text = self.label_var.get().strip()
+        genre_text = self.genre_var.get().strip()
+        selected_tags = self._get_selected_tags()
+
+        if not all([title, artist]):
+            self._show_error(
+                "Missing metadata",
+                "Please provide at least title and artist before adding to Rekordbox.",
+            )
+            return
+
+        # Add 33RPM track to Rekordbox in a worker thread
+        worker = threading.Thread(
+            target=self._add_33rpm_to_rekordbox_worker,
+            args=(preview_path, title, artist, album, year_text, label_text, genre_text, selected_tags),
+            daemon=True,
+        )
+        self._set_busy(True, "Adding 33RPM track to Rekordbox...")
+        worker.start()
+
+    def _add_33rpm_to_rekordbox_worker(
+        self,
+        preview_path: str,
+        title: str,
+        artist: str,
+        album: str,
+        year_text: str,
+        label_text: str,
+        genre_text: str,
+        selected_tags: list[str],
+    ) -> None:
+        try:
+            year = self._safe_int(year_text)
+
+            with RekordboxDAO() as dao:
+                track = dao.add_audio_file_as_track(preview_path)
+
+                dao.set_track_metadata_in_rekordbox(
+                    track_id=track.ID,
+                    title=f"{title} (33RPM)",
+                    artist=artist,
+                    album=album,
+                    label=label_text if label_text else None,
+                    year=year,
+                    genre=genre_text if genre_text else None,
+                    tags=selected_tags,
+                )
+
+            self.root.after(
+                0,
+                lambda: self._on_33rpm_added_successfully(preview_path),
+            )
+        except Exception as exc:
+            self.root.after(0, lambda error=str(exc): self._on_33rpm_add_failed(error))
+
+    def _on_33rpm_added_successfully(self, preview_path: str) -> None:
+        self._set_busy(False, "33RPM track added to Rekordbox successfully!")
+        messagebox.showinfo(
+            "Success",
+            f"33RPM track has been added to your Rekordbox collection.\nFile: {preview_path}",
+            parent=self.root,
+        )
+
+    def _on_33rpm_add_failed(self, details: str) -> None:
+        self._set_busy(False, "Failed to add 33RPM track to Rekordbox.")
+        self._show_error("Add 33RPM failed", details)
 
     def save_metadata(self) -> None:
         if not self.selected_file:
@@ -840,23 +983,36 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         os.makedirs(youtube_dir, exist_ok=True)
         started_at = time.time()
 
+        downloaded_path = None
+
         try:
-            downloaded = download_audio_as_mp3(clean_url, youtube_dir)
-            downloaded_path = resolve_downloaded_path(
-                downloaded_path=downloaded,
-                title=title,
-                youtube_title=self.video_title_var.get().strip(),
-                youtube_dir=youtube_dir,
-                started_at=started_at,
-            )
-
-            self._track_generated_download(downloaded_path)
-
-            if not os.path.exists(downloaded_path):
-                raise RuntimeError(
-                    "Audio download did not return a valid local file path."
+            # PHASE 1: Download the file
+            try:
+                downloaded = download_audio_as_mp3(clean_url, youtube_dir)
+                downloaded_path = resolve_downloaded_path(
+                    downloaded_path=downloaded,
+                    title=title,
+                    youtube_title=self.video_title_var.get().strip(),
+                    youtube_dir=youtube_dir,
+                    started_at=started_at,
                 )
 
+                self._track_generated_download(downloaded_path)
+
+                if not os.path.exists(downloaded_path):
+                    raise RuntimeError(
+                        "Audio download did not return a valid local file path."
+                    )
+            except Exception as exc:
+                # Only cleanup if download itself failed
+                if downloaded_path:
+                    self.root.after(
+                        0,
+                        lambda path=downloaded_path: self._cleanup_download_file(path),
+                    )
+                raise
+
+            # PHASE 2: Process the downloaded file (don't delete on failure here)
             write_metadata_to_mp3(
                 downloaded_path,
                 title,
@@ -871,6 +1027,11 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             year = self._safe_int(year_text) or extract_year_from_youtube_info(
                 self.youtube_info
             )
+
+            # IMPORTANT: Mark file as imported NOW (before Rekordbox import attempt).
+            # This ensures that if Rekordbox import fails, the local file is NOT deleted on cleanup.
+            # The local MP3 is valid and useful independently; Rekordbox import is optional.
+            self._track_imported_download(downloaded_path)
 
             actual_tags = selected_tags
             imported_track_id = ""
@@ -893,22 +1054,16 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                     actual_tags = dao.get_track_tags(track.ID)
                     imported_track_id = str(track.ID)
 
-                self._track_imported_download(downloaded_path)
-
             self.root.after(
                 0,
-                lambda: self._on_download_success(
-                    downloaded_path,
-                    actual_tags,
-                    imported_track_id,
+                lambda path=downloaded_path, tags=actual_tags, tid=imported_track_id: self._on_download_success(
+                    path,
+                    tags,
+                    tid,
                 ),
             )
         except Exception as exc:
-            self.root.after(
-                0,
-                lambda path=downloaded_path: self._cleanup_download_file(path),
-            )
-            self.root.after(0, lambda: self._on_download_failure(str(exc)))
+            self.root.after(0, lambda error=str(exc): self._on_download_failure(error))
 
     def _on_download_success(
         self,

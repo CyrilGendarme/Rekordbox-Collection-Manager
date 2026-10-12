@@ -31,6 +31,11 @@ def fetch_youtube_info(url: str) -> dict[str, Any]:
         "quiet": True,
         "skip_download": True,
         "noplaylist": True,
+        "socket_timeout": 30,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        "extractor_args": {"youtube": {"player_client": ["web", "android"]}},
     }
     with YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
@@ -41,8 +46,14 @@ def download_audio_as_mp3(url: str, output_dir: str) -> str:
     ydl_opts = {
         "format": "bestaudio/best",
         "noplaylist": True,
-        "quiet": True,
+        "quiet": False,
+        "noprogress": False,
         "outtmpl": outtmpl,
+        "socket_timeout": 30,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        },
+        "extractor_args": {"youtube": {"player_client": ["web", "android"]}},
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",

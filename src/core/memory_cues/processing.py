@@ -13,8 +13,8 @@ dao = RekordboxDAO()
 
 REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH = settings.REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH
 
-def common_actions():
-    ensure_rekordbox_ready()
+def common_actions(messagebox):
+    ensure_rekordbox_ready(messagebox)
 
     actions.ensure_2_decks_display()
 
@@ -90,71 +90,79 @@ def process_loaded_track():
         nonlocal last_text, last_img_np_with_phrase_change
 
         for _ in range(4):
-            img_np, raw_text = detection.detect_phrase()
+            try:
+                img_np, raw_text = detection.detect_phrase()
 
-            if (
-                last_img_np_with_phrase_change is not None
-                and _get_imgs_np_rgb_delta(img_np, last_img_np_with_phrase_change) < 10
-            ):
-                return False
+                if (
+                    last_img_np_with_phrase_change is not None
+                    and _get_imgs_np_rgb_delta(img_np, last_img_np_with_phrase_change) < 10
+                ):
+                    return False
 
-            last_img_np_with_phrase_change = img_np
+                last_img_np_with_phrase_change = img_np
 
-            trimmed_text = "".join(
-                c for c in raw_text if not c.isdigit() and c not in string.punctuation
-            ).strip()
+                trimmed_text = "".join(
+                    c for c in raw_text if not c.isdigit() and c not in string.punctuation
+                ).strip()
 
-            if any(
-                re.search(pattern, trimmed_text, re.IGNORECASE)
-                for pattern in possible_texts
-            ):
-                if _has_to_set_cue(trimmed_text, last_text):
-                    actions.set_memory_cues()
+                if any(
+                    re.search(pattern, trimmed_text, re.IGNORECASE)
+                    for pattern in possible_texts
+                ):
+                    if _has_to_set_cue(trimmed_text, last_text):
+                        actions.set_memory_cues()
 
-                last_text = trimmed_text
-                return True
+                    last_text = trimmed_text
+                    return True
 
-            # Shall just be noise
-            if len(trimmed_text) <= 2:
-                return False
+                # Shall just be noise
+                if len(trimmed_text) <= 2:
+                    return False
+            except Exception as e:
+                print(f"ERROR in phrase detection: {type(e).__name__}: {str(e)}")
+                continue
 
         return False
 
-    if detection.detect_if_memory_cue_exists():
-        print(f"Memory cue already exists for the loaded track. Skipping.")
-        return
+    try:
+        if detection.detect_if_memory_cue_exists():
+            print(f"Memory cue already exists for the loaded track. Skipping.")
+            return
 
-    was_on_phrase_start = _detect_phrase_and_set_cue_if_needed()
+        was_on_phrase_start = _detect_phrase_and_set_cue_if_needed()
 
-    # Once at start for intro
-    if not was_on_phrase_start:
-        actions.ensure_cue_on_beat()
+        # Once at start for intro
+        if not was_on_phrase_start:
+            actions.ensure_cue_on_beat()
 
-    # Advance one beat until on a measure start
-    start_of_mesure_detected = False
-    for _ in range(10):
-        actions.advance_one_beat()
-        if detection.detect_start_of_mesure():
-            start_of_mesure_detected = True
-            break
+        # Advance one beat until on a measure start
+        start_of_mesure_detected = False
+        for _ in range(10):
+            actions.advance_one_beat()
+            if detection.detect_start_of_mesure():
+                start_of_mesure_detected = True
+                break
 
-    if not start_of_mesure_detected:
-        print("Failed to detect start of measure after advancing one beat 4 times...")
-        return
+        if not start_of_mesure_detected:
+            print("Failed to detect start of measure after advancing one beat 4 times...")
+            return
 
-    while True:
-        _detect_phrase_and_set_cue_if_needed()
+        while True:
+            _detect_phrase_and_set_cue_if_needed()
 
-        actions.advance_one_measure()
-        track_waveform = detection.capture_track_waveform()
+            actions.advance_one_measure()
+            track_waveform = detection.capture_track_waveform()
 
-        if last_track_waveform is not None and _are_img_np_same(
-            track_waveform, last_track_waveform
-        ):
-            print("End of track.")
-            break
+            if last_track_waveform is not None and _are_img_np_same(
+                track_waveform, last_track_waveform
+            ):
+                print("End of track.")
+                break
 
-        last_track_waveform = track_waveform
+            last_track_waveform = track_waveform
+    except Exception as e:
+        print(f"ERROR in process_loaded_track: {type(e).__name__}: {str(e)}")
+        print("Track processing failed, moving to next track...")
 
 
 def is_valid_tracks_without_memory_cues(track: DjmdContent):
@@ -177,41 +185,63 @@ def is_valid_tracks_without_memory_cues(track: DjmdContent):
 
 def process_track_per_track_gui(message_box_callback: callable):
     filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
+    print(f"Found {len(filtered_tracks)} tracks to process")
 
-    common_actions()
+    common_actions(message_box_callback)
 
     for track in filtered_tracks:
-        actions.search_and_load_track(track.name)
-        actions.switch_focus()
-        process_loaded_track()
-        message_box_callback("Done", f"Memory cues set for {track.name}.")
+        try:
+            print(f"Searching for track: {track.Title}")
+            actions.search_and_load_track(track.Title)
+            actions.switch_focus()
+            print(f"Processing track: {track.Title}")
+            process_loaded_track()
+            message_box_callback("Done", f"Memory cues set for {track.Title}.")
+        except Exception as e:
+            print(f"ERROR processing track {track.Title}: {type(e).__name__}: {str(e)}")
+            print("Continuing to next track...")
+            continue
 
 
 def process_all_tracks_gui(message_box_callback: callable):
     filtered_tracks = dao.get_tracks(is_valid=is_valid_tracks_without_memory_cues)
 
-    common_actions()
+    common_actions(message_box_callback)
 
     import random
 
     random.shuffle(filtered_tracks)
 
+    processed_count = 0
+    skipped_count = 0
+
     for track in filtered_tracks:
+        try:
+            print(f"Processing track: {track.Title}")
 
-        print(f"Processing track: {track.name}")
+            actions.search_and_load_track(track.Title)
+            actions.go_to_top_of_collection()
 
-        actions.search_and_load_track(track.name)
-        actions.go_to_top_of_collection()
+            for _ in range(5):
+                try:
+                    actions.switch_focus()
+                    process_loaded_track()
+                    actions.switch_focus()
+                    print("----- will now load next track in collection -----")
+                    actions.next_track_in_collection()
+                    print("----- has loaded next track -----")
+                except Exception as e:
+                    print(f"ERROR in track sub-loop: {type(e).__name__}: {str(e)}")
+                    continue
+            
+            processed_count += 1
+        except Exception as e:
+            print(f"ERROR processing track {track.Title}: {type(e).__name__}: {str(e)}")
+            print("Skipping to next track...")
+            skipped_count += 1
+            continue
 
-        for _ in range(5):
-            actions.switch_focus()
-            process_loaded_track()
-            actions.switch_focus()
-            print("----- will now load next track in collection -----")
-            actions.next_track_in_collection()
-            print("----- has loaded next track -----")
-
-    message_box_callback("Done", "Memory cues set for all tracks")
+    message_box_callback("Done", f"Memory cues set for {processed_count} tracks (skipped {skipped_count})")
 
 
 def remove_memory_cues_if_less_than_two():

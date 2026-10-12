@@ -68,8 +68,9 @@ def search_and_load_track(track_name):
 
     send_key_to_rekordbox(OPEN_SEARCH_TRACK_DIALOG, 0.1, 0.1)
 
-    for char in track_name:
-        send_key_to_rekordbox(char)
+    # Use typewrite to type the track name (works for ASCII characters after normalization)
+    pyautogui.typewrite(track_name, interval=0.05)
+    pyautogui.sleep(0.1)
 
     send_key_to_rekordbox(SWITCH_FOCUS_KEY, 1)
     send_key_to_rekordbox(LOAD_TRACK_KEY, delay_after=0.3, hold_time=0.1)
@@ -80,7 +81,9 @@ def ensure_search_is_cleared():
     Ensure the search field in Rekordbox is cleared after loading a track.
     """
     send_key_to_rekordbox(OPEN_SEARCH_TRACK_DIALOG, 0.1, 0.1)
-    send_key_to_rekordbox("backspace", 0.2)
+    # Select all and delete to ensure complete clearing
+    send_key_to_rekordbox("ctrl+a", 0.1)
+    send_key_to_rekordbox("delete", 0.2)
     send_key_to_rekordbox(SWITCH_FOCUS_KEY, 0.2)
 
 

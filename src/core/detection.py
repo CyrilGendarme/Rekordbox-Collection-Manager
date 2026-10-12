@@ -67,11 +67,13 @@ def detect_phrase():
     img_gray = cv2.cvtColor(img_np, cv2.COLOR_BGR2GRAY)
     _, img_thresh = cv2.threshold(img_gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
+    print(f"[DEBUG] Running OCR on phrase region...")
     text_img_thresh = pytesseract.image_to_string(
         img_thresh,
         lang="eng",
         config="--psm 7 --oem 1 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
     )
+    print(f"[DEBUG] OCR detected phrase: {text_img_thresh.strip()}")
 
     return img_np, text_img_thresh
 
