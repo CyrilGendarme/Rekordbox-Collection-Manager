@@ -14,29 +14,30 @@ from src.core.to_33rpm.audio_enhancer.rendering import (
     render_high_shelf_track,
     render_low_pass_track,
 )
+from src.user_config import USER
 
 
-INPUT_PATH = Path("C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test in.wav")
+INPUT_PATH = Path(f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test in.wav")
 OUTPUT_PATH_LOW_PASS = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test low pass.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test low pass.wav"
 )
 OUTPUT_PATH_DYNAMIC_EQ_1 = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test dynamic eq 1.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test dynamic eq 1.wav"
 )
 OUTPUT_PATH_DYNAMIC_EQ_2 = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test dynamic eq 2.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test dynamic eq 2.wav"
 )
 OUTPUT_PATH_DYNAMIC_EQ_3 = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test dynamic eq 3.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test dynamic eq 3.wav"
 )
 OUTPUT_PATH_DE_ESSER = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test de-esser.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test de-esser.wav"
 )
 OUTPUT_PATH_HIGH_SHELF = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test high shelf.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test high shelf.wav"
 )
 OUTPUT_PATH_CHAIN = Path(
-    "C:\\Users\\User\\Desktop\\musique\\tracks\\33 rpm\\test chain.wav"
+    f"C:\\Users\\{USER}\\Desktop\\musique\\tracks\\33 rpm\\test chain.wav"
 )
 
 

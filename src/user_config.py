@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+USER = "cyril"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -24,8 +26,8 @@ class Settings(BaseSettings):
     OPEN_SEARCH_TRACK_DIALOG: str = "*"
     PLAY_PAUSE_TRACK: str = "M"
     LAYOUT_2_DECKS_HORIZONTAL: str = ")"
-    REKORDBOX_EXE_PATH: str = r"C:\Program Files\rekordbox\rekordbox 7.2.16\rekordbox.exe"
-    REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH: str = r"C:/Users\User\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
+    REKORDBOX_EXE_PATH: str = r"C:\Program Files\rekordbox\rekordbox 7.2.19\rekordbox.exe"
+    REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH: str = rf"C:/Users\{USER}\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
 
     # Value retrieve from .env file
     DISCOGS_TOKEN: str = ""
@@ -34,8 +36,8 @@ class Settings(BaseSettings):
     DURATION_BETWEEN_TTS_CHUNKS: int = 200  # Duration between each TTS chunk in millseconds
     DURATION_BETWEEN_TTS_SEGMENT: int = 35  # in milliseconds
     DURATION_BETWEEN_MAIN_SEQUENCES: int = 800  # ex: time between Web page and captions
-    SAMPLES_FOLDER: str = "C:\\Users\\User\\Desktop\\musique\\records rip\\tracks"
-    MODIFIED_SAMPLES_FOLDER: str = "C:\\Users\\User\\Desktop\\temp\\Nouveau dossier"
+    SAMPLES_FOLDER: str = f"C:\\Users\\{USER}\\Desktop\\musique\\records rip\\tracks"
+    MODIFIED_SAMPLES_FOLDER: str = f"C:\\Users\\{USER}\\Desktop\\temp\\Nouveau dossier"
     AUDIO_FILES_EXTENSIOINS: tuple[str, ...] = (".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac")
     TRUNCATE_SILENCE_TRESHOLD: float = -35.0  # in dBFS
     TRUNCATE_SILENCE_CHUNK_SIZE: int = 10  # in ms

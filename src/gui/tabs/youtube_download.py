@@ -834,10 +834,12 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             )
             return
 
+        rekordbox_title = f"{title} (33RPM)"
+
         # Add 33RPM track to Rekordbox in a worker thread
         worker = threading.Thread(
             target=self._add_33rpm_to_rekordbox_worker,
-            args=(preview_path, title, artist, album, year_text, label_text, genre_text, selected_tags),
+            args=(preview_path, rekordbox_title, artist, album, year_text, label_text, genre_text, selected_tags),
             daemon=True,
         )
         self._set_busy(True, "Adding 33RPM track to Rekordbox...")
@@ -858,11 +860,18 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             year = self._safe_int(year_text)
 
             with RekordboxDAO() as dao:
+                if dao.find_track_by_title_artist(title, artist):
+                    self.root.after(
+                        0,
+                        lambda: self._on_duplicate_track(title, artist),
+                    )
+                    return
+
                 track = dao.add_audio_file_as_track(preview_path)
 
                 dao.set_track_metadata_in_rekordbox(
                     track_id=track.ID,
-                    title=f"{title} (33RPM)",
+                    title=title,
                     artist=artist,
                     album=album,
                     label=label_text if label_text else None,
@@ -961,7 +970,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
 
         worker = threading.Thread(
             target=self._download_and_add_worker,
-            args=(url, youtube_dir, metadata),
+            args=(url, youtube_dir, metadata, self.import_original_to_rekordbox_var.get()),
             daemon=True,
         )
         self._set_busy(True, "Downloading and importing track...")
@@ -972,6 +981,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         url: str,
         youtube_dir: str,
         metadata: tuple[str, str, str],
+        import_original: bool,
     ) -> None:
         title, artist, album = metadata
         year_text = self.year_var.get().strip()
@@ -986,6 +996,15 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         downloaded_path = None
 
         try:
+            if import_original:
+                with RekordboxDAO() as dao:
+                    if dao.find_track_by_title_artist(title, artist):
+                        self.root.after(
+                            0,
+                            lambda: self._on_duplicate_track(title, artist),
+                        )
+                        return
+
             # PHASE 1: Download the file
             try:
                 downloaded = download_audio_as_mp3(clean_url, youtube_dir)
@@ -1035,8 +1054,17 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
 
             actual_tags = selected_tags
             imported_track_id = ""
-            if self.import_original_to_rekordbox_var.get():
+            if import_original:
                 with RekordboxDAO() as dao:
+                    if dao.find_track_by_title_artist(title, artist):
+                        self.root.after(
+                            0,
+                            lambda: self._on_duplicate_track(
+                                title, artist, downloaded_path
+                            ),
+                        )
+                        return
+
                     track = dao.add_audio_file_as_track(downloaded_path)
 
                     dao.set_track_metadata_in_rekordbox(
@@ -1098,6 +1126,21 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
     def _on_download_failure(self, details: str) -> None:
         self._set_busy(False, "Download/import failed.")
         self._show_error("Download or import failed", details)
+
+    def _on_duplicate_track(
+        self, title: str, artist: str, downloaded_path: str | None = None
+    ) -> None:
+        if downloaded_path:
+            self.selected_file = downloaded_path
+            self.file_var.set(downloaded_path)
+            if not self.preview_source_var.get().strip():
+                self.preview_source_var.set(downloaded_path)
+        self._set_busy(False, "Track already exists in the Rekordbox collection.")
+        messagebox.showwarning(
+            "Duplicate track",
+            f'"{title}" by {artist} is already in your Rekordbox collection.',
+            parent=self.root,
+        )
 
     def _validate_metadata_inputs(
         self, require_album: bool = True

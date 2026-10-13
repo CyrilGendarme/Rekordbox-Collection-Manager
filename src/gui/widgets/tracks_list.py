@@ -109,6 +109,8 @@ class TracksList(ttk.Frame):
                 result.append((col[0], col[1]))
             else:
                 result.append((col, _DEFAULT_WIDTH))
+        if not any(attr == "date_added" for attr, _width in result):
+            result.append(("date_added", 120))
         return result
 
     def _matches_filter(self, track: Track) -> bool:

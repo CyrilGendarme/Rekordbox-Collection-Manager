@@ -18,3 +18,7 @@ sounddevice
 pydantic
 pydantic-settings
 yt-dlp
+selenium
+pywin32
+screeninfo
+audioop-lts

@@ -414,6 +414,24 @@ class RekordboxDAO:
 
         return tracks
 
+    def find_track_by_title_artist(
+        self, title: str, artist: str
+    ) -> DjmdContent | None:
+        """Find a collection track with a matching title and artist."""
+        normalize = lambda value: " ".join(str(value or "").split()).casefold()
+        normalized_title = normalize(title)
+        normalized_artist = normalize(artist)
+
+        return next(
+            (
+                track
+                for track in self.get_tracks()
+                if normalize(getattr(track, "Title", None)) == normalized_title
+                and normalize(getattr(track, "ArtistName", None)) == normalized_artist
+            ),
+            None,
+        )
+
     def _get_track_by_id(self, track_id: int | str) -> Any:
         result = self.db.get_content(ID=track_id)
         if hasattr(result, "first"):

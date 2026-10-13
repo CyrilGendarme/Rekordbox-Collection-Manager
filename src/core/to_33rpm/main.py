@@ -2,10 +2,11 @@ from pathlib import Path
 
 from src.core.to_33rpm.io_audio import read_audio, write_audio
 from src.core.to_33rpm.processing import ProcessConfig, emulate_45_played_at_33
+from src.user_config import USER
 
 
-INPUT_PATH = Path("C:\\Users\\User\\Desktop\\temp2\\test\\Retromigration x Niklas Wandt - A1. Retromigration x Niklas Wandt - New Days.mp3")
-OUTPUT_PATH = Path("C:\\Users\\User\\Desktop\\temp2\\test\\33rpm\\testeur.mp3")
+INPUT_PATH = Path(f"C:\\Users\\{USER}\\Desktop\\temp2\\test\\Retromigration x Niklas Wandt - A1. Retromigration x Niklas Wandt - New Days.mp3")
+OUTPUT_PATH = Path(f"C:\\Users\\{USER}\\Desktop\\temp2\\test\\33rpm\\testeur.mp3")
 
 LOSSY_SUFFIXES = {".mp3", ".ogg", ".opus", ".m4a", ".aac", ".wma"}
 

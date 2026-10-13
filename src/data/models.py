@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 from pyrekordbox.db6.database import DjmdContent
 
+from src.user_config import USER
+
 @dataclass
 class Track:
     """Represents a music track with all relevant metadata."""
@@ -23,6 +25,7 @@ class Track:
     position_marks: Optional[list] = None  # List of POSITION_MARK dicts
     org_folder_path: Optional[str] = None  # Original folder path
     play_count: Optional[int] = None  # Number of times the track has been played
+    date_added: Optional[str] = None
 
     def __post_init__(self):
         """Ensure tags and position_marks are always lists."""
@@ -56,7 +59,7 @@ class Track:
             if normalized.startswith("/contents_"):
                 continue
             
-            path = path.replace("C:/Users/User/Desktop/musique", "C:/Users/User/Desktop/musique/tracks")
+            path = path.replace(f"C:/Users/{USER}/Desktop/musique", f"C:/Users/{USER}/Desktop/musique/tracks")
             path = path.replace("tracks/tracks", "tracks")
             return path
 
@@ -91,4 +94,5 @@ class Track:
             key=row.KeyName,
             tags=row.MyTagNames,
             play_count=row.DJPlayCount,
+            date_added=getattr(row, "StockDate", None),
         )
