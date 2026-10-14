@@ -73,6 +73,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         self._generated_download_paths: set[str] = set()
         self._imported_download_paths: set[str] = set()
         self._cleanup_hook_registered = False
+        self._loaded_url = ""
 
     def build_main_tab(self, context: FeatureContext) -> Optional[ttk.Frame]:
         self.root = context.root
@@ -486,9 +487,11 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
 
         self._save_pending_cleanup_state()
 
-    def _cleanup_unimported_downloads(self) -> None:
+    def _remove_pending_downloads(self) -> None:
+        """Delete downloaded files that were not imported into Rekordbox."""
         with self._cleanup_lock:
             pending = self._generated_download_paths - self._imported_download_paths
+            self._generated_download_paths -= pending
 
         for raw_path in sorted(pending):
             try:
@@ -497,6 +500,9 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                     candidate.unlink()
             except Exception:
                 pass
+
+    def _cleanup_unimported_downloads(self) -> None:
+        self._remove_pending_downloads()
 
         if PENDING_YOUTUBE_DOWNLOADS_FILE.exists():
             try:
@@ -560,13 +566,18 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             if self.root is not None:
                 self.root.after(
                     0,
-                    lambda: self._on_youtube_data_loaded(info),
+                    lambda: self._on_youtube_data_loaded(info, url),
                 )
         except Exception as exc:
             if self.root is not None:
                 self.root.after(0, lambda error=str(exc): self._on_youtube_data_load_failed(error))
 
-    def _on_youtube_data_loaded(self, info: dict) -> None:
+    def _on_youtube_data_loaded(self, info: dict, url: str) -> None:
+        if url != self._loaded_url:
+            self._remove_pending_downloads()
+            self._save_pending_cleanup_state()
+        self._loaded_url = url
+
         title = (info.get("track") or info.get("title") or "").strip()
         artist = (info.get("artist") or info.get("uploader") or "").strip()
         album = (info.get("album") or "").strip()
@@ -728,10 +739,6 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             self.selected_file = downloaded_path
             self.file_var.set(downloaded_path)
             self._track_generated_download(downloaded_path)
-            
-            # Mark as imported so local file is preserved even if 33RPM rendering fails
-            # The downloaded file is valid and useful independently
-            self._track_imported_download(downloaded_path)
 
             # Now render 33RPM preview
             self.root.after(
@@ -766,6 +773,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             preview_path = preview_dir / f"{source_file.stem}_33rpm.wav"
 
             render_33rpm_preview(source_file, preview_path)
+            self._track_generated_download(str(preview_path))
             self.root.after(0, lambda: self._on_33rpm_preview_ready(preview_path))
         except Exception as exc:
             self.root.after(0, lambda: self._on_33rpm_preview_failed(str(exc)))
@@ -868,6 +876,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                     return
 
                 track = dao.add_audio_file_as_track(preview_path)
+                self._track_imported_download(preview_path)
 
                 dao.set_track_metadata_in_rekordbox(
                     track_id=track.ID,
@@ -1005,33 +1014,22 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                         )
                         return
 
-            # PHASE 1: Download the file
-            try:
-                downloaded = download_audio_as_mp3(clean_url, youtube_dir)
-                downloaded_path = resolve_downloaded_path(
-                    downloaded_path=downloaded,
-                    title=title,
-                    youtube_title=self.video_title_var.get().strip(),
-                    youtube_dir=youtube_dir,
-                    started_at=started_at,
+            downloaded = download_audio_as_mp3(clean_url, youtube_dir)
+            downloaded_path = resolve_downloaded_path(
+                downloaded_path=downloaded,
+                title=title,
+                youtube_title=self.video_title_var.get().strip(),
+                youtube_dir=youtube_dir,
+                started_at=started_at,
+            )
+
+            self._track_generated_download(downloaded_path)
+
+            if not os.path.exists(downloaded_path):
+                raise RuntimeError(
+                    "Audio download did not return a valid local file path."
                 )
 
-                self._track_generated_download(downloaded_path)
-
-                if not os.path.exists(downloaded_path):
-                    raise RuntimeError(
-                        "Audio download did not return a valid local file path."
-                    )
-            except Exception as exc:
-                # Only cleanup if download itself failed
-                if downloaded_path:
-                    self.root.after(
-                        0,
-                        lambda path=downloaded_path: self._cleanup_download_file(path),
-                    )
-                raise
-
-            # PHASE 2: Process the downloaded file (don't delete on failure here)
             write_metadata_to_mp3(
                 downloaded_path,
                 title,
