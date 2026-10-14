@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     TO_33RPM_OUTPUT_DIR: str = str(Path.cwd() / "to_33rpm_outputs")
     YOUTUBE_DOWNLOADS_DIR: str = str(Path.cwd() / "youtube_downloads")
 
+    # vars specific to radio (push tracks to VPS)
+    RADIO_LOCAL_DIR: str = ""
+    RADIO_VPS_HOST: str = ""  # "user@host" or ~/.ssh/config alias
+    RADIO_VPS_PORT: int = 22
+    RADIO_VPS_REMOTE_DIR: str = "radio_music"
+    RADIO_VPS_SSH_KEY: str = ""  # optional path to private key
+    RADIO_GENRE_REGEX: str = "33"
+
 
 settings = Settings()
 

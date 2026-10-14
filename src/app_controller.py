@@ -9,6 +9,7 @@ from .data.rekrodbox_dao import RekordboxDAO
 from .gui.main_window import MainWindow
 from .gui.tabs.collection_filtering_tab import CollectionFilteringFeature
 from .gui.tabs.memory_cues_tab import MemoryCuesFeature
+from .gui.tabs.radio_tab import RadioFeature
 from .gui.tabs.ripped_records_to_tracks_tab import RippedRecordsToTracksFeature
 from .gui.tabs.samples_magnifier import SamplesMagnifierFeature
 from .gui.tabs.to_33rpm_tab import To33RpmFeature
@@ -115,6 +116,7 @@ class AppController:
             SamplesMagnifierFeature(),
             MemoryCuesFeature(),
             YoutubeDownloadFeature(),
+            RadioFeature(),
         ]
         self.window.register_features(self.features, controller=self)
 
