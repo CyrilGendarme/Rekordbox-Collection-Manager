@@ -6,29 +6,37 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from src.core.radio_sync import SyncResult, VpsTarget, sync_to_vps
-from src.gui.tab_system import FeatureContext, TabFeature
+from src.core.radio_sync import SyncResult, VpsTarget, sync_to_vps, target_from_settings
+from src.gui.tab_system import ConfigSubtabFeature, FeatureContext
 from src.user_config import persist_setting, settings
 
 
-class RadioFeature(TabFeature):
+class RadioFeature(ConfigSubtabFeature):
     """Push tracks whose genre matches a regex (default "33") to the radio VPS."""
 
     name = "radio"
+    config_tab_title = "Radio"
 
-    # (setting key, label)
+    # (setting key, label) shown on the main tab
     _FIELDS = (
         ("RADIO_LOCAL_DIR", "Local music folder"),
+        ("RADIO_GENRE_REGEX", "Genre regex"),
+    )
+    # (setting key, label) VPS connection, shown in Configuration > Radio
+    _CONFIG_FIELDS = (
         ("RADIO_VPS_HOST", "VPS host (user@host)"),
         ("RADIO_VPS_PORT", "SSH port"),
         ("RADIO_VPS_REMOTE_DIR", "Remote folder"),
         ("RADIO_VPS_SSH_KEY", "SSH key (optional)"),
-        ("RADIO_GENRE_REGEX", "Genre regex"),
     )
 
     def __init__(self):
         self.root: tk.Tk | None = None
         self.vars = {key: tk.StringVar(value=str(getattr(settings, key))) for key, _ in self._FIELDS}
+        self.config_vars = {
+            key: tk.StringVar(value=str(getattr(settings, key))) for key, _ in self._CONFIG_FIELDS
+        }
+        self.config_status_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="Configure the VPS, then push tracks.")
         self.sync_metadata_var = tk.BooleanVar(value=True)
         self.log: tk.Text | None = None
@@ -41,11 +49,60 @@ class RadioFeature(TabFeature):
         self._create_widgets(main_frame)
         return main_frame
 
+    def _create_config_widgets(self, context: FeatureContext, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+
+        wrapper = ttk.LabelFrame(parent, text="VPS Connection", padding=10)
+        wrapper.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        wrapper.columnconfigure(1, weight=1)
+
+        for row, (key, label) in enumerate(self._CONFIG_FIELDS):
+            ttk.Label(wrapper, text=label).grid(row=row, column=0, sticky="w", pady=3)
+            ttk.Entry(wrapper, textvariable=self.config_vars[key]).grid(
+                row=row, column=1, sticky="ew", padx=(8, 8), pady=3
+            )
+        ttk.Button(wrapper, text="Choose Key", command=self._choose_ssh_key).grid(
+            row=len(self._CONFIG_FIELDS) - 1, column=2, sticky="e"
+        )
+
+        ttk.Button(
+            wrapper,
+            text="Apply",
+            style="Accent.TButton",
+            command=self._apply_vps_config,
+        ).grid(row=len(self._CONFIG_FIELDS), column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Label(wrapper, textvariable=self.config_status_var, style="Dim.TLabel").grid(
+            row=len(self._CONFIG_FIELDS) + 1, column=0, columnspan=3, sticky="w", pady=(6, 0)
+        )
+
+    def _choose_ssh_key(self) -> None:
+        selected = filedialog.askopenfilename(title="Choose SSH private key")
+        if selected:
+            self.config_vars["RADIO_VPS_SSH_KEY"].set(selected)
+
+    def _apply_vps_config(self) -> None:
+        values = {key: var.get().strip() for key, var in self.config_vars.items()}
+        if not values["RADIO_VPS_HOST"]:
+            messagebox.showwarning("Radio", "VPS host is required.")
+            return
+        try:
+            port = int(values["RADIO_VPS_PORT"] or 22)
+        except ValueError:
+            messagebox.showwarning("Radio", "SSH port must be a number.")
+            return
+        values["RADIO_VPS_PORT"] = port
+        values["RADIO_VPS_REMOTE_DIR"] = values["RADIO_VPS_REMOTE_DIR"] or "radio_music"
+
+        for key, value in values.items():
+            persist_setting(key, value)
+            self.config_vars[key].set(str(value))
+        self.config_status_var.set("VPS connection saved.")
+
     def _create_widgets(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(2, weight=1)
 
-        form = ttk.LabelFrame(parent, text="VPS Sync", padding=10)
+        form = ttk.LabelFrame(parent, text="Source", padding=10)
         form.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
         form.columnconfigure(1, weight=1)
 
@@ -57,6 +114,11 @@ class RadioFeature(TabFeature):
         ttk.Button(form, text="Choose Folder", command=self._choose_local_dir).grid(
             row=0, column=2, sticky="e"
         )
+        ttk.Label(
+            form,
+            text="VPS connection is configured in Configuration > Radio.",
+            style="Dim.TLabel",
+        ).grid(row=len(self._FIELDS), column=0, columnspan=3, sticky="w", pady=(6, 0))
 
         actions = ttk.Frame(parent)
         actions.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
@@ -120,25 +182,20 @@ class RadioFeature(TabFeature):
 
     def _start_sync(self, dry_run: bool) -> None:
         values = {key: var.get().strip() for key, var in self.vars.items()}
-        if not values["RADIO_LOCAL_DIR"] or not values["RADIO_VPS_HOST"]:
-            messagebox.showwarning("Radio", "Local folder and VPS host are required.")
+        if not values["RADIO_LOCAL_DIR"]:
+            messagebox.showwarning("Radio", "Local music folder is required.")
             return
-        try:
-            port = int(values["RADIO_VPS_PORT"] or 22)
-        except ValueError:
-            messagebox.showwarning("Radio", "SSH port must be a number.")
+        target = target_from_settings()
+        if not target.host:
+            messagebox.showwarning(
+                "Radio", "VPS host is not configured (Configuration > Radio, then Apply)."
+            )
             return
 
         for key, value in values.items():
             if str(getattr(settings, key)) != value:
-                persist_setting(key, port if key == "RADIO_VPS_PORT" else value)
+                persist_setting(key, value)
 
-        target = VpsTarget(
-            host=values["RADIO_VPS_HOST"],
-            remote_dir=values["RADIO_VPS_REMOTE_DIR"] or "radio_music",
-            port=port,
-            ssh_key=values["RADIO_VPS_SSH_KEY"],
-        )
         self._set_running(True)
         threading.Thread(
             target=self._sync_worker,
