@@ -6,15 +6,23 @@ import json
 import logging
 import os
 import re
+import shutil
 import threading
 import tkinter as tk
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
+from uuid import uuid4
 
 import numpy as np
 
+from src.core.samples_magnifier.audio import (
+    normalize_audio_peak,
+    read_audiosegment,
+    truncate_silence,
+    write_audiosegment,
+)
 from src.core.to_33rpm.audio_enhancer.processing import (
     DynamicEQConfig,
     HighShelfConfig,
@@ -32,7 +40,7 @@ from src.core.to_33rpm.processing import ProcessConfig, emulate_45_played_at_33
 from src.data import RekordboxDAO, Track
 from src.gui.tab_system import ConfigSubtabFeature, FeatureContext
 from src.gui.widgets import TracksList
-from src.services.audio_metadata_service import write_audio_metadata
+from src.services.audio_metadata_service import copy_mp3_metadata, write_audio_metadata
 from src.user_config import persist_setting, settings
 
 OUTPUT_SUFFIX = ".wav"
@@ -70,6 +78,16 @@ class TransformedTrack:
     imported_track_id: str = ""
 
 
+@dataclass
+class MagnifiedTrack:
+    source_track: Optional[Track]
+    source_path: str
+    output_path: str
+    title: str
+    artist: str
+    status: str = "ready"
+
+
 class To33RpmFeature(ConfigSubtabFeature):
     name = "to_33rpm"
     config_tab_title = "To 33RPM"
@@ -88,11 +106,19 @@ class To33RpmFeature(ConfigSubtabFeature):
 
         self.tracks_list: TracksList | None = None
         self.preview_tree: ttk.Treeview | None = None
+        self.magnifier_tracks_list: TracksList | None = None
+        self.magnifier_files_list: tk.Listbox | None = None
+        self.magnifier_tree: ttk.Treeview | None = None
+        self.magnifier_files: list[Path] = []
+        self._magnified_tracks: list[MagnifiedTrack] = []
 
         self.transform_btn: ttk.Button | None = None
         self.preview_btn: ttk.Button | None = None
         self.stop_preview_btn: ttk.Button | None = None
         self.import_btn: ttk.Button | None = None
+        self.magnify_btn: ttk.Button | None = None
+        self.magnifier_import_btn: ttk.Button | None = None
+        self.magnifier_busy = False
         self.player_seek_scale: ttk.Scale | None = None
         self.player_time_var = tk.StringVar(value="00:00 / 00:00")
 
@@ -126,7 +152,17 @@ class To33RpmFeature(ConfigSubtabFeature):
         main_frame = ttk.Frame(context.notebook)
         context.notebook.add(main_frame, text="To 33RPM")
 
-        self._create_widgets(main_frame)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(0, weight=1)
+        subtabs = ttk.Notebook(main_frame)
+        subtabs.grid(row=0, column=0, sticky="nsew")
+        collection_files_tab = ttk.Frame(subtabs)
+        magnifier_tab = ttk.Frame(subtabs)
+        subtabs.add(collection_files_tab, text="Collection files")
+        subtabs.add(magnifier_tab, text="Magnify ripped 33 rpm")
+
+        self._create_widgets(collection_files_tab)
+        self._create_magnifier_widgets(magnifier_tab)
         if self.controller is not None:
             self.controller.register_collection_loaded_callbacks(
                 self._on_collection_loaded
@@ -308,6 +344,155 @@ class To33RpmFeature(ConfigSubtabFeature):
             pady=(0, 10),
         )
 
+    def _create_magnifier_widgets(self, parent: ttk.Frame) -> None:
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+        parent.rowconfigure(2, weight=2)
+
+        sources = ttk.Panedwindow(parent, orient=tk.HORIZONTAL)
+        sources.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+
+        collection_frame = ttk.LabelFrame(
+            sources,
+            text="Rekordbox collection (genre/category matching 33)",
+            padding=8,
+        )
+        collection_frame.columnconfigure(0, weight=1)
+        collection_frame.rowconfigure(0, weight=1)
+        self.magnifier_tracks_list = TracksList(
+            collection_frame,
+            columns=[
+                ("name", 230),
+                ("artist", 170),
+                ("genre", 120),
+                ("tags", 180),
+                ("file_path", 300),
+            ],
+            multiselect=True,
+            tree_height=8,
+        )
+        self.magnifier_tracks_list.grid(row=0, column=0, sticky="nsew")
+        sources.add(collection_frame, weight=3)
+
+        local_frame = ttk.LabelFrame(sources, text="Local audio files", padding=8)
+        local_frame.columnconfigure(0, weight=1)
+        local_frame.rowconfigure(1, weight=1)
+        file_actions = ttk.Frame(local_frame)
+        file_actions.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(
+            file_actions,
+            text="Choose Files",
+            command=self._choose_magnifier_files,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            file_actions,
+            text="Remove Selected",
+            command=self._remove_magnifier_files,
+        ).pack(side=tk.LEFT, padx=(6, 0))
+        self.magnifier_files_list = tk.Listbox(
+            local_frame,
+            selectmode=tk.EXTENDED,
+            height=8,
+            exportselection=False,
+        )
+        self.magnifier_files_list.grid(row=1, column=0, sticky="nsew")
+        sources.add(local_frame, weight=2)
+
+        select_actions = ttk.Frame(parent)
+        select_actions.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+        self.magnify_btn = ttk.Button(
+            select_actions,
+            text="Magnify Selected",
+            style="Accent.TButton",
+            command=self.magnify_selected,
+        )
+        self.magnify_btn.pack(side=tk.LEFT)
+        ttk.Label(
+            select_actions,
+            text="Select collection tracks and/or local files above.",
+            style="Dim.TLabel",
+        ).pack(side=tk.LEFT, padx=(10, 0))
+
+        results_frame = ttk.LabelFrame(
+            parent, text="Preview and select magnified tracks to import", padding=8
+        )
+        results_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 6))
+        results_frame.columnconfigure(0, weight=1)
+        results_frame.rowconfigure(0, weight=1)
+        self.magnifier_tree = ttk.Treeview(
+            results_frame,
+            columns=("title", "artist", "source", "output", "status"),
+            show="headings",
+            selectmode="extended",
+            height=7,
+        )
+        for column, label, width in (
+            ("title", "Track", 220),
+            ("artist", "Artist", 160),
+            ("source", "Source File", 300),
+            ("output", "Magnified File", 300),
+            ("status", "Status", 130),
+        ):
+            self.magnifier_tree.heading(column, text=label)
+            self.magnifier_tree.column(column, width=width, anchor="w")
+        self.magnifier_tree.grid(row=0, column=0, sticky="nsew")
+
+        actions = ttk.Frame(results_frame)
+        actions.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Button(
+            actions,
+            text="Play Selected",
+            command=self.play_selected_magnified,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(
+            actions,
+            text="Stop",
+            command=self.stop_preview,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+        self.magnifier_import_btn = ttk.Button(
+            actions,
+            text="Import to Rekordbox",
+            command=self.import_selected_magnified,
+        )
+        self.magnifier_import_btn.pack(side=tk.RIGHT)
+
+        ttk.Label(
+            parent, textvariable=self.status_var, style="Dim.TLabel", anchor="w"
+        ).grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+    def _choose_magnifier_files(self) -> None:
+        selected = filedialog.askopenfilenames(
+            title="Select audio files to magnify",
+            filetypes=[
+                ("Audio", "*.mp3 *.wav *.flac *.ogg *.m4a *.aac"),
+                ("All files", "*.*"),
+            ],
+        )
+        for raw_path in selected:
+            path = Path(raw_path)
+            if path not in self.magnifier_files:
+                self.magnifier_files.append(path)
+                if self.magnifier_files_list is not None:
+                    self.magnifier_files_list.insert(tk.END, str(path))
+
+    def _remove_magnifier_files(self) -> None:
+        if self.magnifier_files_list is None:
+            return
+        selected = list(self.magnifier_files_list.curselection())
+        for index in reversed(selected):
+            self.magnifier_files_list.delete(index)
+            del self.magnifier_files[index]
+
+    @staticmethod
+    def _matches_33rpm_category(track: Track) -> bool:
+        category_text = " ".join([track.genre or "", *(track.tags or [])])
+        return re.search(r"33", category_text, flags=re.IGNORECASE) is not None
+
+    @staticmethod
+    def _audio_export_format(source_path: Path) -> str:
+        formats = {".aac": "adts", ".m4a": "ipod"}
+        return formats.get(source_path.suffix.lower(), source_path.suffix.lstrip("."))
+
     def _choose_output_dir(self) -> None:
         selected = filedialog.askdirectory(
             title="Select output folder for 33 RPM files"
@@ -333,6 +518,316 @@ class To33RpmFeature(ConfigSubtabFeature):
     def _on_collection_loaded(self, tracks: list[Track]) -> None:
         if self.tracks_list is not None:
             self.tracks_list.set_tracks(self._filter_source_tracks(tracks))
+        if self.magnifier_tracks_list is not None:
+            self.magnifier_tracks_list.set_tracks(
+                [track for track in tracks if self._matches_33rpm_category(track)]
+            )
+
+    def magnify_selected(self) -> None:
+        if self.magnifier_busy or self._is_busy:
+            return
+
+        sources: list[tuple[Optional[Track], Path]] = []
+        if self.magnifier_tracks_list is not None:
+            selected_tracks = self.magnifier_tracks_list.get_selected_tracks()
+            unresolved_tracks = [
+                track.display_name
+                for track in selected_tracks
+                if self._resolve_source_path(track) is None
+            ]
+            if unresolved_tracks:
+                self._show_error(
+                    "Collection audio file missing",
+                    "Cannot locate the audio file for:\n" + unresolved_tracks[0],
+                )
+                return
+            for track in selected_tracks:
+                source_path = self._resolve_source_path(track)
+                if source_path is not None:
+                    sources.append((track, Path(source_path)))
+
+        sources.extend((None, path) for path in self.magnifier_files)
+        if not sources:
+            self._show_error(
+                "No audio selected",
+                "Select a matching collection track or choose one or more local audio files.",
+            )
+            return
+
+        invalid = [
+            str(path)
+            for _, path in sources
+            if not path.is_file()
+            or path.suffix.lower() not in settings.AUDIO_FILES_EXTENSIOINS
+        ]
+        if invalid:
+            self._show_error(
+                "Invalid audio file",
+                f"Selected input is missing or unsupported:\n{invalid[0]}",
+            )
+            return
+
+        output_dir_value = self.output_dir_var.get().strip()
+        if not output_dir_value:
+            self._show_error("Missing output folder", "Please choose an output folder.")
+            return
+        output_dir = Path(output_dir_value)
+
+        self._set_magnifier_busy(True)
+        self.status_var.set(f"Magnifying {len(sources)} selected audio file(s)...")
+        threading.Thread(
+            target=self._magnify_worker,
+            args=(sources, output_dir),
+            daemon=True,
+        ).start()
+
+    def _magnify_worker(
+        self,
+        sources: list[tuple[Optional[Track], Path]],
+        output_dir: Path,
+    ) -> None:
+        magnified: list[MagnifiedTrack] = []
+        errors: list[str] = []
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            errors.append(f"Cannot create output folder {output_dir}: {exc}")
+
+        if not errors:
+            for index, (track, source_path) in enumerate(sources, start=1):
+                if self.root is not None:
+                    self.root.after(
+                        0,
+                        lambda i=index, n=len(sources), p=source_path: self.status_var.set(
+                            f"[{i}/{n}] Magnifying {p.name}..."
+                        ),
+                    )
+                output_path: Path | None = None
+                try:
+                    audio = read_audiosegment(str(source_path))
+                    normalized = normalize_audio_peak(audio, target_peak_db=-1.0)
+                    processed = truncate_silence(
+                        normalized,
+                        silence_threshold=settings.TRUNCATE_SILENCE_TRESHOLD,
+                        chunk_size=settings.TRUNCATE_SILENCE_CHUNK_SIZE,
+                    )
+                    output_path = self._new_magnified_path(output_dir, source_path)
+                    write_audiosegment(
+                        processed,
+                        str(output_path),
+                        format=self._audio_export_format(source_path),
+                        source_path=str(source_path),
+                    )
+                    if source_path.suffix.lower() == ".mp3":
+                        copy_mp3_metadata(str(source_path), str(output_path))
+
+                    magnified.append(
+                        MagnifiedTrack(
+                            source_track=track,
+                            source_path=str(source_path),
+                            output_path=str(output_path),
+                            title=track.name if track is not None else source_path.stem,
+                            artist=track.artist if track is not None else "",
+                        )
+                    )
+                except Exception as exc:
+                    if output_path is not None and output_path.exists():
+                        try:
+                            output_path.unlink()
+                        except OSError as cleanup_exc:
+                            errors.append(
+                                f"Could not remove incomplete output {output_path}: "
+                                f"{cleanup_exc}"
+                            )
+                    errors.append(f"{source_path}: {exc}")
+
+        if self.root is not None:
+            self.root.after(0, lambda: self._on_magnify_done(magnified, errors))
+
+    @staticmethod
+    def _new_magnified_path(output_dir: Path, source_path: Path) -> Path:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        candidate = output_dir / f"{source_path.stem}_magnified{source_path.suffix}"
+        index = 1
+        while candidate.exists():
+            candidate = output_dir / (
+                f"{source_path.stem}_magnified_{index}{source_path.suffix}"
+            )
+            index += 1
+        return candidate
+
+    def _on_magnify_done(
+        self, magnified: list[MagnifiedTrack], errors: list[str]
+    ) -> None:
+        self._magnified_tracks.extend(magnified)
+        self._render_magnified_rows()
+        self._set_magnifier_busy(False)
+        self.status_var.set(
+            f"Magnification complete. Success: {len(magnified)}, Failed: {len(errors)}."
+        )
+        if errors:
+            details = "\n".join(errors[:10])
+            suffix = "\n..." if len(errors) > 10 else ""
+            messagebox.showwarning(
+                "Some files could not be magnified",
+                f"{len(errors)} file(s) failed:\n{details}{suffix}",
+                parent=self.root,
+            )
+
+    def _set_magnifier_busy(self, busy: bool) -> None:
+        self.magnifier_busy = busy
+        state = "disabled" if busy else "normal"
+        if self.magnify_btn is not None:
+            self.magnify_btn.configure(state=state)
+        if self.magnifier_import_btn is not None:
+            self.magnifier_import_btn.configure(state=state)
+        other_state = "disabled" if busy else "normal"
+        if self.transform_btn is not None:
+            self.transform_btn.configure(state=other_state)
+        if self.import_btn is not None:
+            self.import_btn.configure(state=other_state)
+
+    def _render_magnified_rows(self) -> None:
+        if self.magnifier_tree is None:
+            return
+        for item_id in self.magnifier_tree.get_children():
+            self.magnifier_tree.delete(item_id)
+        for index, item in enumerate(self._magnified_tracks):
+            self.magnifier_tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    item.title,
+                    item.artist,
+                    item.source_path,
+                    item.output_path,
+                    item.status,
+                ),
+            )
+
+    def _get_selected_magnified_items(self) -> list[MagnifiedTrack]:
+        if self.magnifier_tree is None:
+            return []
+        selected: list[MagnifiedTrack] = []
+        for item_id in self.magnifier_tree.selection():
+            try:
+                index = int(item_id)
+            except ValueError:
+                continue
+            if 0 <= index < len(self._magnified_tracks):
+                selected.append(self._magnified_tracks[index])
+        return selected
+
+    def play_selected_magnified(self) -> None:
+        selected = self._get_selected_magnified_items()
+        if not selected:
+            self._show_error("No track selected", "Select a magnified track to preview.")
+            return
+        item = selected[0]
+        self._play_preview_file(item.output_path, item.title)
+
+    def import_selected_magnified(self) -> None:
+        if self.magnifier_busy or self._is_busy:
+            return
+        selected = self._get_selected_magnified_items()
+        if not selected:
+            self._show_error(
+                "No magnified tracks selected",
+                "Select one or more magnified tracks to import.",
+            )
+            return
+
+        replacements = [item for item in selected if item.source_track is not None]
+        if replacements and not messagebox.askyesno(
+            "Replace collection audio?",
+            "The selected collection tracks will have their original audio files "
+            "replaced in place. This cannot be undone. Continue?",
+            parent=self.root,
+        ):
+            return
+
+        self._set_magnifier_busy(True)
+        self.status_var.set(f"Importing {len(selected)} magnified track(s)...")
+        threading.Thread(
+            target=self._import_magnified_worker,
+            args=(selected,),
+            daemon=True,
+        ).start()
+
+    def _import_magnified_worker(self, selected: list[MagnifiedTrack]) -> None:
+        imported_local = 0
+        replaced_collection = 0
+        errors: list[str] = []
+        for index, item in enumerate(selected, start=1):
+            if self.root is not None:
+                self.root.after(
+                    0,
+                    lambda i=index, n=len(selected), t=item.title: self.status_var.set(
+                        f"[{i}/{n}] Importing {t}..."
+                    ),
+                )
+            try:
+                if item.source_track is None:
+                    with RekordboxDAO() as dao:
+                        dao.add_audio_file_as_track(item.output_path)
+                    item.status = "imported"
+                    imported_local += 1
+                else:
+                    source_path = Path(item.source_path)
+                    if not source_path.is_file():
+                        raise FileNotFoundError(
+                            f"Collection audio file not found: {source_path}"
+                        )
+                    temp_path = source_path.with_name(
+                        f".{source_path.stem}.{uuid4().hex}.tmp{source_path.suffix}"
+                    )
+                    try:
+                        shutil.copy2(item.output_path, temp_path)
+                        os.replace(temp_path, source_path)
+                    finally:
+                        if temp_path.exists():
+                            temp_path.unlink()
+                    item.status = "replaced"
+                    replaced_collection += 1
+            except Exception as exc:
+                item.status = "import failed"
+                errors.append(f"{item.title}: {exc}")
+
+        if self.root is not None:
+            self.root.after(
+                0,
+                lambda: self._on_magnified_import_done(
+                    imported_local, replaced_collection, errors
+                ),
+            )
+
+    def _on_magnified_import_done(
+        self, imported_local: int, replaced_collection: int, errors: list[str]
+    ) -> None:
+        self._render_magnified_rows()
+        self._set_magnifier_busy(False)
+        self.status_var.set(
+            f"Import complete. Added: {imported_local}, replaced: {replaced_collection}, "
+            f"Failed: {len(errors)}."
+        )
+        if imported_local and self.controller is not None:
+            self.controller.refresh_collection()
+        if errors:
+            details = "\n".join(errors[:10])
+            suffix = "\n..." if len(errors) > 10 else ""
+            messagebox.showwarning(
+                "Some tracks could not be imported",
+                f"{len(errors)} track(s) failed:\n{details}{suffix}",
+                parent=self.root,
+            )
+        else:
+            messagebox.showinfo(
+                "Import complete",
+                f"Added {imported_local} local file(s) and replaced "
+                f"{replaced_collection} collection file(s).",
+                parent=self.root,
+            )
 
     @staticmethod
     def _normalize_text(value: str) -> str:
@@ -397,11 +892,15 @@ class To33RpmFeature(ConfigSubtabFeature):
             self.preview_btn.configure(state=state)
         if self.import_btn is not None:
             self.import_btn.configure(state=state)
+        if self.magnify_btn is not None:
+            self.magnify_btn.configure(state=state)
+        if self.magnifier_import_btn is not None:
+            self.magnifier_import_btn.configure(state=state)
         if self.stop_preview_btn is not None:
             self.stop_preview_btn.configure(state="normal")
 
     def transform_selected_tracks(self) -> None:
-        if self._is_busy:
+        if self._is_busy or self.magnifier_busy:
             return
         if self.tracks_list is None:
             return
@@ -587,9 +1086,11 @@ class To33RpmFeature(ConfigSubtabFeature):
             return
 
         candidate = selected[0]
-        path = candidate.output_path
+        self._play_preview_file(candidate.output_path, candidate.title)
+
+    def _play_preview_file(self, path: str, title: str) -> None:
         if not os.path.exists(path):
-            self._show_error("Missing file", f"Transformed file not found:\n{path}")
+            self._show_error("Missing file", f"Audio file not found:\n{path}")
             return
 
         self._player_current_file = path
@@ -605,7 +1106,7 @@ class To33RpmFeature(ConfigSubtabFeature):
 
         try:
             self._start_preview_stream(start_seconds=0.0)
-            self.status_var.set(f"Previewing: {candidate.title}")
+            self.status_var.set(f"Previewing: {title}")
             self._start_player_clock()
         except Exception as exc:  # noqa: BLE001
             self._show_error("Preview failed", str(exc))
@@ -619,7 +1120,7 @@ class To33RpmFeature(ConfigSubtabFeature):
         self.status_var.set("Preview stopped.")
 
     def import_selected_to_rekordbox(self) -> None:
-        if self._is_busy:
+        if self._is_busy or self.magnifier_busy:
             return
 
         selected = self._get_selected_transformed_items()

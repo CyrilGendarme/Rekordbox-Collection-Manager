@@ -73,6 +73,7 @@ class TracksList(ttk.Frame):
         on_cell_edited: Optional[Callable[[Track, str, Any], None]] = None,
         multiselect: bool = False,
         editable_columns: Optional[set[str]] = None,
+        tree_height: int = 20,
         **kwargs,
     ):
         super().__init__(parent, **kwargs)
@@ -84,6 +85,7 @@ class TracksList(ttk.Frame):
         self.on_cell_edited = on_cell_edited
         self._multiselect = multiselect
         self._editable_columns = set(editable_columns or set())
+        self._tree_height = tree_height
 
         self._all_tracks: List[Track] = []
         self._filtered_tracks: List[Track] = []
@@ -160,7 +162,7 @@ class TracksList(ttk.Frame):
             self._scroll,
             columns=self._column_defs,
             show="headings",
-            height=20,
+            height=self._tree_height,
             on_sort=self._on_sort,
             selectmode="extended" if self._multiselect else "browse",
         )

@@ -331,7 +331,8 @@ def _pick_release_for_record_ref(
     for release in releases:
         if _normalize_catno(release.catno) == wanted:
             return release
-    return releases[0]
+    # Discogs search is fuzzy (e.g. "MS 105" can return "GMS 1058"); never guess.
+    return None
 
 
 def get_release_info_by_record_ref(

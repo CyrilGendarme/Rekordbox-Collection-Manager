@@ -78,7 +78,14 @@ def _discogs_export_info_from_filename_stem(stem: str) -> DiscogsExportInfo:
                 rpm_label=rpm_label,
             )
 
-        tracks = release_info.tracks
+        # Discogs sometimes lists headings like "This Side" as tracks (no side/position).
+        tracks = [
+            t
+            for t in release_info.tracks
+            if (t.side or "").strip()
+            or (t.position or "").strip()
+            or "side" not in (t.title or "").lower()
+        ]
         print(
             f"Found {len(tracks)} tracks from Discogs for record_ref={parsed.record_ref}"
         )
@@ -93,10 +100,19 @@ def _discogs_export_info_from_filename_stem(stem: str) -> DiscogsExportInfo:
             rpm_label=rpm_label,
         )
 
-    side_hint = (parsed.side or "").strip().upper()[:1]
+    def _normalized_side(raw: Optional[str]) -> str:
+        s = (raw or "").strip().upper()
+        # "AA" denotes the second side of a single (A-side / AA-side).
+        if s == "AA":
+            return "B"
+        return s[:1]
+
+    side_hint = _normalized_side(parsed.side)
     selected_tracks = tracks
     if side_hint in {"A", "B", "C", "D"}:
-        side_tracks = [track for track in tracks if (track.side or "").startswith(side_hint)]
+        side_tracks = [
+            track for track in tracks if _normalized_side(track.side) == side_hint
+        ]
         if side_tracks:
             selected_tracks = side_tracks
         else:
