@@ -43,7 +43,7 @@ from src.gui.widgets import TracksList
 from src.services.audio_metadata_service import copy_mp3_metadata, write_audio_metadata
 from src.user_config import persist_setting, settings
 
-OUTPUT_SUFFIX = ".wav"
+OUTPUT_SUFFIX = ".mp3"
 PENDING_33RPM_FILE = Path.cwd() / ".to33rpm_pending_cleanup.json"
 EFFECT_CHAIN_STAGE_SPECS: dict[str, EffectStageSpec] = {
     "dynamic_eq": EffectStageSpec(

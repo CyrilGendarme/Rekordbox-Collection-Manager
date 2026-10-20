@@ -39,10 +39,32 @@ def _default_subtype_for_suffix(suffix: str) -> str | None:
     return None
 
 
+MP3_BITRATE = "320k"
+
+
+def _write_mp3(path: Path, audio: np.ndarray, sample_rate: int) -> None:
+    from pydub import AudioSegment
+
+    data = np.clip(audio, -1.0, 1.0)
+    pcm = (data * 32767.0).astype("<i2")
+    channels = 1 if pcm.ndim == 1 else pcm.shape[1]
+    segment = AudioSegment(
+        data=pcm.tobytes(),
+        sample_width=2,
+        frame_rate=int(sample_rate),
+        channels=channels,
+    )
+    segment.export(str(path), format="mp3", bitrate=MP3_BITRATE)
+
+
 def write_audio(path: Path, audio: np.ndarray, meta: AudioMeta) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     out_suffix = path.suffix.lower()
+    if out_suffix == ".mp3":
+        _write_mp3(path, audio, meta.sample_rate)
+        return
+
     same_container = out_suffix == meta.source_suffix
     write_format = meta.format if same_container else None
     write_subtype = meta.subtype if same_container else _default_subtype_for_suffix(out_suffix)
