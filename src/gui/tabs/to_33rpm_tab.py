@@ -982,7 +982,7 @@ class To33RpmFeature(ConfigSubtabFeature):
                     album=source_album,
                     year=source_year,
                     label=source_label,
-                    genre=source_genre,
+                    genre="33 rpm",
                     bpm=track.bpm,
                 )
 

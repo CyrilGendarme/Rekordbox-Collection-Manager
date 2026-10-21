@@ -74,6 +74,8 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         self._imported_download_paths: set[str] = set()
         self._cleanup_hook_registered = False
         self._loaded_url = ""
+        self._original_download_path = ""
+        self._original_download_url = ""
 
     def build_main_tab(self, context: FeatureContext) -> Optional[ttk.Frame]:
         self.root = context.root
@@ -541,6 +543,22 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
     def _get_preview_source_path(self) -> str:
         return self.preview_source_var.get().strip() or self.selected_file.strip()
 
+    def _get_cached_original(self, url: str) -> str:
+        """Return the already-downloaded original file for this URL, if any."""
+        clean_url = remove_playlist_param(url)
+        path = self._original_download_path
+        if (
+            path
+            and self._original_download_url == clean_url
+            and os.path.exists(path)
+        ):
+            return path
+        return ""
+
+    def _remember_original(self, url: str, path: str) -> None:
+        self._original_download_path = path
+        self._original_download_url = remove_playlist_param(url)
+
     def load_youtube_data(self) -> None:
         if self._is_busy:
             return
@@ -587,6 +605,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         self.artist_var.set(artist)
         self.album_var.set(album)
         self.year_var.set(str(info.get("release_year") or ""))
+        self.label_var.set("")
 
         if self.available_genres and not self.genre_var.get().strip():
             self.genre_var.set(self.available_genres[0])
@@ -681,11 +700,13 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         if self._is_busy:
             return
 
-        source_path = self._get_preview_source_path()
-        
+        url = self.url_var.get().strip()
+        source_path = self._get_cached_original(url) or self._get_preview_source_path()
+        if source_path.endswith("_33rpm.wav"):
+            source_path = self.selected_file.strip()
+
         # If no source file exists, we need to download it first
         if not source_path or not os.path.exists(source_path):
-            url = self.url_var.get().strip()
             if not url:
                 self._show_error(
                     "Missing source file",
@@ -738,6 +759,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             # Store the downloaded path for future use
             self.selected_file = downloaded_path
             self.file_var.set(downloaded_path)
+            self._remember_original(url, downloaded_path)
             self._track_generated_download(downloaded_path)
 
             # Now render 33RPM preview
@@ -832,7 +854,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
         album = self.album_var.get().strip()
         year_text = self.year_var.get().strip()
         label_text = self.label_var.get().strip()
-        genre_text = self.genre_var.get().strip()
+        genre_text = "33 rpm"
         selected_tags = self._get_selected_tags()
 
         if not all([title, artist]):
@@ -842,7 +864,7 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
             )
             return
 
-        rekordbox_title = f"{title} (33RPM)"
+        rekordbox_title = f"{title} (33 rpm)"
 
         # Add 33RPM track to Rekordbox in a worker thread
         worker = threading.Thread(
@@ -1014,14 +1036,17 @@ class YoutubeDownloadFeature(ConfigSubtabFeature):
                         )
                         return
 
-            downloaded = download_audio_as_mp3(clean_url, youtube_dir)
-            downloaded_path = resolve_downloaded_path(
-                downloaded_path=downloaded,
-                title=title,
-                youtube_title=self.video_title_var.get().strip(),
-                youtube_dir=youtube_dir,
-                started_at=started_at,
-            )
+            downloaded_path = self._get_cached_original(url)
+            if not downloaded_path:
+                downloaded = download_audio_as_mp3(clean_url, youtube_dir)
+                downloaded_path = resolve_downloaded_path(
+                    downloaded_path=downloaded,
+                    title=title,
+                    youtube_title=self.video_title_var.get().strip(),
+                    youtube_dir=youtube_dir,
+                    started_at=started_at,
+                )
+                self._remember_original(url, downloaded_path)
 
             self._track_generated_download(downloaded_path)
 
