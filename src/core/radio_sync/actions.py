@@ -4,9 +4,10 @@ Only files missing on the VPS are transferred, to save bandwidth. Uploads go
 to a temporary name and are renamed once complete, so a file present on the
 VPS is always a full copy.
 
-Files already on the VPS get their metadata completed from the local copy:
-tags missing/empty remotely are filled in place on the VPS (only the tag
-text travels, not the audio). Existing remote values are never overwritten.
+Files already on the VPS get their metadata updated from the local copy:
+non-empty local tag values overwrite differing remote values (only the tag
+text travels, not the audio). Remote files no longer present locally are
+removed.
 This step needs `python3` with `mutagen` on the VPS
 (e.g. `sudo apt install python3-mutagen`); without it, pushing still works.
 
@@ -60,9 +61,11 @@ class SyncResult:
     skipped: int = 0
     pushed: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
-    # relative path -> tag keys added (or that would be added on a dry run)
+    # relative path -> tag keys changed (or that would be changed on a dry run)
     metadata_updated: dict[str, list[str]] = field(default_factory=dict)
     metadata_failed: list[tuple[str, str]] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+    remove_failed: list[tuple[str, str]] = field(default_factory=list)
 
 
 def find_matching_files(
@@ -136,7 +139,7 @@ def complete_remote_metadata(
     files: dict[str, dict[str, list[str]]],
     dry_run: bool = False,
 ) -> dict:
-    """Fill tags missing on the VPS copies from local tags, in one ssh call.
+    """Update tags on VPS copies from local tags, in one ssh call.
 
     `files` maps remote paths to local tags. Returns the remote script's result:
     {"updated": {path: [keys]}, "errors": {path: message}}.
@@ -192,15 +195,39 @@ def sync_to_vps(
         else:
             to_push.append((local_path, relative))
 
-    report(f"{result.skipped} already on VPS, {len(to_push)} to push.")
+    local_files = {local_path.relative_to(local_dir).as_posix() for local_path, _ in matching}
+    to_remove = sorted(remote_files - local_files)
+    report(
+        f"{result.skipped} already on VPS, {len(to_push)} to push, "
+        f"{len(to_remove)} no longer in collection."
+    )
 
     if sync_metadata and already_remote:
         _sync_metadata(target, already_remote, dry_run, result, report)
 
     if dry_run:
         result.pushed = [relative for _, relative in to_push]
+        result.removed = to_remove
+        for relative in to_remove:
+            report(f"would remove: {relative}")
         return result
+
+    for relative in to_remove:
+        try:
+            _remove_remote_file(target, posixpath.join(target.remote_dir, relative))
+            result.removed.append(relative)
+            report(f"removed: {relative}")
+        except Exception as exc:
+            logger.error("Failed to remove %s: %s", relative, exc)
+            result.remove_failed.append((relative, str(exc)))
+
     if not to_push:
+        report(
+            f"Done: {len(result.pushed)} pushed, {result.skipped} skipped, "
+            f"{len(result.failed)} failed, {len(result.removed)} removed, "
+            f"{len(result.remove_failed)} remove failures, "
+            f"{len(result.metadata_updated)} metadata updated."
+        )
         return result
 
     remote_dirs = sorted(
@@ -222,9 +249,16 @@ def sync_to_vps(
 
     report(
         f"Done: {len(result.pushed)} pushed, {result.skipped} skipped, "
-        f"{len(result.failed)} failed, {len(result.metadata_updated)} metadata completed."
+        f"{len(result.failed)} failed, {len(result.removed)} removed, "
+        f"{len(result.remove_failed)} remove failures, "
+        f"{len(result.metadata_updated)} metadata updated."
     )
     return result
+
+
+def _remove_remote_file(target: VpsTarget, remote_path: str) -> None:
+    """Remove one file whose path was returned by the remote find command."""
+    _run_ssh(target, f"rm -f -- {shlex.quote(remote_path)}")
 
 
 def _sync_metadata(
@@ -249,7 +283,7 @@ def _sync_metadata(
         result.metadata_failed.append(("*", str(exc)))
         return
 
-    verb = "would complete" if dry_run else "completed"
+    verb = "would update" if dry_run else "updated"
     for remote_path, keys in remote_result.get("updated", {}).items():
         relative = by_remote_path[remote_path]
         result.metadata_updated[relative] = keys

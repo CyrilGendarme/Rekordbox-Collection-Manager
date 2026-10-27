@@ -138,7 +138,7 @@ class RadioFeature(ConfigSubtabFeature):
         dry_btn.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Checkbutton(
             actions,
-            text="Complete metadata of files already on VPS",
+            text="Update metadata of files already on VPS",
             variable=self.sync_metadata_var,
         ).pack(side=tk.LEFT, padx=(16, 0))
         self._buttons = [push_btn, dry_btn]
@@ -237,6 +237,11 @@ class RadioFeature(ConfigSubtabFeature):
             self._append_log(f"FAILED: {relative}: {error}")
         for relative, error in result.metadata_failed:
             self._append_log(f"METADATA FAILED: {relative}: {error}")
+        for relative in result.removed:
+            if dry_run:
+                self._append_log(f"would remove: {relative}")
+        for relative, error in result.remove_failed:
+            self._append_log(f"REMOVE FAILED: {relative}: {error}")
 
     def _on_sync_failed(self, error: str) -> None:
         self._set_running(False)

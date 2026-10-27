@@ -3,7 +3,7 @@
 This module must stay self-contained (stdlib + mutagen only): its source is
 sent over ssh and executed by `python3` on the VPS, where `run_remote()` reads
 a JSON payload {"dry_run": bool, "files": {remote_path: local_tags}} on stdin
-and prints {"updated": {remote_path: [added keys]}, "errors": {...}}.
+and prints {"updated": {remote_path: [changed keys]}, "errors": {...}}.
 """
 
 import json
@@ -83,18 +83,15 @@ def read_tags(path):
     return tags
 
 
-def complete_tags(path, source_tags, dry_run=False):
-    """Fill keys missing/empty in `path` from `source_tags`; return added keys.
-
-    Existing non-empty values are never overwritten.
-    """
+def update_tags(path, source_tags, dry_run=False):
+    """Make non-empty source tag values authoritative; return changed keys."""
     audio = _open_easy(path)
     if audio is None:
         raise ValueError("unsupported audio file")
     if audio.tags is None:
         audio.add_tags()
 
-    added = []
+    changed = []
     for key, values in source_tags.items():
         values = _clean(values)
         if not values:
@@ -103,17 +100,17 @@ def complete_tags(path, source_tags, dry_run=False):
             existing = _clean(audio.tags[key]) if key in audio.tags else []
         except Exception:
             existing = []
-        if existing:
+        if existing == values:
             continue
         try:
             audio.tags[key] = values
         except Exception:
             continue  # key not supported by this format / mutagen version
-        added.append(key)
+        changed.append(key)
 
-    if added and not dry_run:
+    if changed and not dry_run:
         audio.save()
-    return added
+    return changed
 
 
 def run_remote():
@@ -121,9 +118,9 @@ def run_remote():
     result = {"updated": {}, "errors": {}}
     for path, source_tags in payload["files"].items():
         try:
-            added = complete_tags(path, source_tags, dry_run=payload.get("dry_run", False))
-            if added:
-                result["updated"][path] = added
+            changed = update_tags(path, source_tags, dry_run=payload.get("dry_run", False))
+            if changed:
+                result["updated"][path] = changed
         except Exception as exc:
             result["errors"][path] = str(exc)
     json.dump(result, sys.stdout)
