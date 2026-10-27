@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from src.core.to_33rpm.audio_enhancer.chain import apply_enhancer_chain
 from src.core.to_33rpm.io_audio import read_audio, write_audio
 from src.core.to_33rpm.processing import ProcessConfig, emulate_45_played_at_33
 from src.user_config import USER
@@ -28,6 +29,7 @@ def main() -> int:
         audio,
         ProcessConfig(method="polyphase", normalize=True, target_peak_dbfs=-1.0),
     )
+    processed = apply_enhancer_chain(processed, meta.sample_rate)
     write_audio(OUTPUT_PATH, processed, meta)
 
     print(f"Done: {INPUT_PATH} -> {OUTPUT_PATH}")

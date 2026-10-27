@@ -7,6 +7,7 @@ import numpy as np
 from scipy.signal import resample, resample_poly
 
 from src.core.to_33rpm.io_audio import read_audio, write_audio
+from src.core.to_33rpm.audio_enhancer.chain import apply_enhancer_chain
 
 
 SOURCE_RPM = 45.0
@@ -76,5 +77,6 @@ def render_33rpm_preview(
             method="polyphase", normalize=True, target_peak_dbfs=-1.0
         ),
     )
+    processed = apply_enhancer_chain(processed, meta.sample_rate)
     write_audio(destination_path, processed, meta)
     return destination_path

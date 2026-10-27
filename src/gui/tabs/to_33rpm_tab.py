@@ -16,6 +16,7 @@ from typing import Optional
 from uuid import uuid4
 
 import numpy as np
+from pydub import AudioSegment
 
 from src.core.samples_magnifier.audio import (
     normalize_audio_peak,
@@ -23,18 +24,7 @@ from src.core.samples_magnifier.audio import (
     truncate_silence,
     write_audiosegment,
 )
-from src.core.to_33rpm.audio_enhancer.processing import (
-    DynamicEQConfig,
-    HighShelfConfig,
-    LowPassConfig,
-)
-from src.core.to_33rpm.audio_enhancer.rendering import (
-    EffectStageSpec,
-    create_dynamic_eq_stream_processor,
-    create_high_shelf_stream_processor,
-    create_low_pass_stream_processor,
-    process_array_in_parallel_effect_chain_stream,
-)
+from src.core.to_33rpm.audio_enhancer.chain import apply_enhancer_chain
 from src.core.to_33rpm.io_audio import read_audio, write_audio
 from src.core.to_33rpm.processing import ProcessConfig, emulate_45_played_at_33
 from src.data import RekordboxDAO, Track
@@ -45,21 +35,6 @@ from src.user_config import persist_setting, settings
 
 OUTPUT_SUFFIX = ".mp3"
 PENDING_33RPM_FILE = Path.cwd() / ".to33rpm_pending_cleanup.json"
-EFFECT_CHAIN_STAGE_SPECS: dict[str, EffectStageSpec] = {
-    "dynamic_eq": EffectStageSpec(
-        processor_factory=create_dynamic_eq_stream_processor,
-        config=DynamicEQConfig(center_hz=7200.0),
-    ),
-    "high_shelf": EffectStageSpec(
-        processor_factory=create_high_shelf_stream_processor,
-        config=HighShelfConfig(),
-    ),
-    "low_pass": EffectStageSpec(
-        processor_factory=create_low_pass_stream_processor,
-        config=LowPassConfig(),
-    ),
-}
-EFFECT_CHAIN_ORDER: tuple[str, ...] = ("dynamic_eq", "high_shelf", "low_pass")
 logger = logging.getLogger(__name__)
 
 
@@ -611,6 +586,7 @@ class To33RpmFeature(ConfigSubtabFeature):
                         silence_threshold=settings.TRUNCATE_SILENCE_TRESHOLD,
                         chunk_size=settings.TRUNCATE_SILENCE_CHUNK_SIZE,
                     )
+                    processed = self._enhance_audio_segment(processed)
                     output_path = self._new_magnified_path(output_dir, source_path)
                     write_audiosegment(
                         processed,
@@ -1008,12 +984,24 @@ class To33RpmFeature(ConfigSubtabFeature):
 
     @staticmethod
     def _apply_enhancer_chain(audio: np.ndarray, sample_rate: int) -> np.ndarray:
-        return process_array_in_parallel_effect_chain_stream(
-            audio=audio,
-            sample_rate=sample_rate,
-            effect_stage_specs=EFFECT_CHAIN_STAGE_SPECS,
-            effects=EFFECT_CHAIN_ORDER,
+        return apply_enhancer_chain(audio, sample_rate)
+
+    @classmethod
+    def _enhance_audio_segment(cls, audio: AudioSegment) -> AudioSegment:
+        samples = np.array(audio.get_array_of_samples())
+        channels = audio.channels
+        if channels > 1:
+            samples = samples.reshape((-1, channels))
+        scale = float(1 << (8 * audio.sample_width - 1))
+        enhanced = cls._apply_enhancer_chain(
+            samples.astype(np.float64) / scale,
+            audio.frame_rate,
         )
+        clipped = np.clip(enhanced, -1.0, 1.0)
+        pcm = (clipped * (scale - 1.0)).astype(samples.dtype)
+        if channels > 1:
+            pcm = pcm.reshape(-1)
+        return audio._spawn(pcm.tobytes())
 
     def _on_transform_done(
         self,
