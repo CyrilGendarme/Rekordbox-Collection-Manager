@@ -134,7 +134,7 @@ def _scp_upload(target: VpsTarget, local_path: Path, remote_path: str, raw_remot
     _run_ssh(target, f"mv -f {shlex.quote(partial_path)} {shlex.quote(remote_path)}")
 
 
-def complete_remote_metadata(
+def update_remote_metadata(
     target: VpsTarget,
     files: dict[str, dict[str, list[str]]],
     dry_run: bool = False,
@@ -208,8 +208,6 @@ def sync_to_vps(
     if dry_run:
         result.pushed = [relative for _, relative in to_push]
         result.removed = to_remove
-        for relative in to_remove:
-            report(f"would remove: {relative}")
         return result
 
     for relative in to_remove:
@@ -273,7 +271,7 @@ def _sync_metadata(
         posixpath.join(target.remote_dir, relative): relative for relative in already_remote
     }
     try:
-        remote_result = complete_remote_metadata(
+        remote_result = update_remote_metadata(
             target,
             {remote: already_remote[relative] for remote, relative in by_remote_path.items()},
             dry_run=dry_run,
@@ -312,7 +310,7 @@ def main() -> None:
     parser.add_argument("--genre-regex", default=settings.RADIO_GENRE_REGEX)
     parser.add_argument("--dry-run", action="store_true", help="List what would be pushed")
     parser.add_argument(
-        "--no-metadata", action="store_true", help="Don't complete metadata on the VPS"
+        "--no-metadata", action="store_true", help="Don't update metadata on the VPS"
     )
     args = parser.parse_args()
 
@@ -334,6 +332,11 @@ def main() -> None:
         print(f"FAILED: {relative}: {error}")
     for relative, error in result.metadata_failed:
         print(f"METADATA FAILED: {relative}: {error}")
+    for relative in result.removed:
+        if args.dry_run:
+            print(f"would remove: {relative}")
+    for relative, error in result.remove_failed:
+        print(f"REMOVE FAILED: {relative}: {error}")
 
 
 if __name__ == "__main__":
