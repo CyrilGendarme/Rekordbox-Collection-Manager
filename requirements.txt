@@ -17,6 +17,7 @@ pydub
 sounddevice
 pydantic
 pydantic-settings
+paramiko
 yt-dlp
 selenium
 pywin32

@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Optional
 
 from src.core.radio_sync import SyncResult, VpsTarget, sync_to_vps, target_from_settings
@@ -24,10 +24,10 @@ class RadioFeature(ConfigSubtabFeature):
     )
     # (setting key, label) VPS connection, shown in Configuration > Radio
     _CONFIG_FIELDS = (
-        ("RADIO_VPS_HOST", "VPS host (user@host)"),
+        ("RADIO_VPS_HOST", "VPS host"),
+        ("RADIO_VPS_USERNAME", "Username"),
         ("RADIO_VPS_PORT", "SSH port"),
         ("RADIO_VPS_REMOTE_DIR", "Remote folder"),
-        ("RADIO_VPS_SSH_KEY", "SSH key (optional)"),
     )
 
     def __init__(self):
@@ -61,9 +61,6 @@ class RadioFeature(ConfigSubtabFeature):
             ttk.Entry(wrapper, textvariable=self.config_vars[key]).grid(
                 row=row, column=1, sticky="ew", padx=(8, 8), pady=3
             )
-        ttk.Button(wrapper, text="Choose Key", command=self._choose_ssh_key).grid(
-            row=len(self._CONFIG_FIELDS) - 1, column=2, sticky="e"
-        )
 
         ttk.Button(
             wrapper,
@@ -75,15 +72,13 @@ class RadioFeature(ConfigSubtabFeature):
             row=len(self._CONFIG_FIELDS) + 1, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
 
-    def _choose_ssh_key(self) -> None:
-        selected = filedialog.askopenfilename(title="Choose SSH private key")
-        if selected:
-            self.config_vars["RADIO_VPS_SSH_KEY"].set(selected)
-
     def _apply_vps_config(self) -> None:
         values = {key: var.get().strip() for key, var in self.config_vars.items()}
         if not values["RADIO_VPS_HOST"]:
             messagebox.showwarning("Radio", "VPS host is required.")
+            return
+        if not values["RADIO_VPS_USERNAME"]:
+            messagebox.showwarning("Radio", "VPS username is required.")
             return
         try:
             port = int(values["RADIO_VPS_PORT"] or 22)
@@ -185,12 +180,22 @@ class RadioFeature(ConfigSubtabFeature):
         if not values["RADIO_LOCAL_DIR"]:
             messagebox.showwarning("Radio", "Local music folder is required.")
             return
-        target = target_from_settings()
-        if not target.host:
+        if not settings.RADIO_VPS_HOST or not settings.RADIO_VPS_USERNAME:
             messagebox.showwarning(
-                "Radio", "VPS host is not configured (Configuration > Radio, then Apply)."
+                "Radio", "VPS host and username are not configured (Configuration > Radio, then Apply)."
             )
             return
+        password = simpledialog.askstring(
+            "VPS password",
+            f"Password for {settings.RADIO_VPS_USERNAME}@{settings.RADIO_VPS_HOST}:",
+            show="*",
+        )
+        if password is None:
+            return
+        if not password:
+            messagebox.showwarning("Radio", "VPS password is required.")
+            return
+        target = target_from_settings(password)
 
         for key, value in values.items():
             if str(getattr(settings, key)) != value:

@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-USER = "cyril"
+USER = "User"
 
 
 class Settings(BaseSettings):
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     PLAY_PAUSE_TRACK: str = "M"
     LAYOUT_2_DECKS_HORIZONTAL: str = ")"
     REKORDBOX_EXE_PATH: str = r"C:\Program Files\rekordbox\rekordbox 7.2.19\rekordbox.exe"
-    REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH: str = rf"C:/Users\{USER}\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
+    REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH: str = rf"C:\Users\{USER}\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
 
     # Value retrieve from .env file
     DISCOGS_TOKEN: str = ""
@@ -47,10 +47,10 @@ class Settings(BaseSettings):
 
     # vars specific to radio (push tracks to VPS)
     RADIO_LOCAL_DIR: str = ""
-    RADIO_VPS_HOST: str = ""  # "user@host" or ~/.ssh/config alias
+    RADIO_VPS_HOST: str = ""
+    RADIO_VPS_USERNAME: str = ""
     RADIO_VPS_PORT: int = 22
     RADIO_VPS_REMOTE_DIR: str = "radio_music"
-    RADIO_VPS_SSH_KEY: str = ""  # optional path to private key
     RADIO_GENRE_REGEX: str = "33"
 
 
