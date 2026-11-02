@@ -1,7 +1,7 @@
-"""Push music files whose Rekordbox genre matches a regex to a VPS over SSH.
+"""Push music files whose genre tag matches a regex to a VPS over SSH.
 
-The genre comes from the Rekordbox collection (file tags are often stale). Each
-matching track is paired by file name with a file under the local music folder.
+The genre comes from the Rekordbox XML export (falling back to file tags) and is
+matched to the files of the local music folder by file name.
 
 Only files missing on the VPS are transferred, to save bandwidth. Uploads go
 to a temporary name and are renamed once complete, so a file present on the
@@ -30,9 +30,13 @@ import logging
 import posixpath
 import re
 import shlex
+import socket
+import time
 from dataclasses import dataclass, field
-from pathlib import Path
+import xml.etree.ElementTree as ET
+from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
+from urllib.parse import unquote
 
 import paramiko
 
@@ -96,46 +100,78 @@ def find_matching_files(
     local_dir: Path,
     genre_pattern: str,
     extensions: tuple[str, ...] = settings.AUDIO_FILES_EXTENSIOINS,
-    report: ProgressCallback = lambda message: None,
 ) -> list[tuple[Path, dict[str, list[str]]]]:
-    """List files under `local_dir` whose Rekordbox genre matches, with their tags.
+    """Recursively list audio files whose genre matches, with their tags.
 
-    Rekordbox tracks are paired with local files by file name (extension ignored);
-    the Rekordbox genre replaces the genre tag so remote metadata follows it.
+    The genre comes from the Rekordbox XML export (matched by file name, extension
+    ignored) and replaces the file's genre tag; files absent from the XML keep
+    their own tag.
     """
-    from src.data.rekrodbox_dao import RekordboxDAO
-
     regex = re.compile(genre_pattern, re.IGNORECASE)
     lowered_extensions = tuple(ext.lower() for ext in extensions)
-    local_by_stem: dict[str, Path] = {}
+    xml_genres = _load_xml_genres()
+    matching = []
     for path in sorted(local_dir.rglob("*")):
-        if path.is_file() and path.suffix.lower() in lowered_extensions:
-            local_by_stem.setdefault(path.stem.lower(), path)
-
-    with RekordboxDAO() as dao:
-        tracks = [
-            track
-            for track in dao.load_tracks_from_collection()
-            if track.genre and track.file_path and regex.search(track.genre)
-        ]
-
-    matching: dict[Path, dict[str, list[str]]] = {}
-    not_found = []
-    for track in tracks:
-        track_path = Path(track.file_path.replace("\\", "/"))
-        local_path = local_by_stem.get(track_path.stem.lower())
-        if local_path is None:
-            not_found.append(track_path.name)
+        if not path.is_file() or path.suffix.lower() not in lowered_extensions:
             continue
-        tags = tag_tools.read_tags(local_path)
-        tags["genre"] = [track.genre]
-        matching[local_path] = tags
+        tags = tag_tools.read_tags(path)
+        xml_genre = xml_genres.get(path.stem.lower())
+        if xml_genre:
+            tags["genre"] = [xml_genre]
+        if regex.search(" / ".join(tags.get("genre", []))):
+            matching.append((path, tags))
+    return matching
 
-    if not_found:
-        report(f"{len(not_found)} Rekordbox track(s) not found in {local_dir}:")
-        for name in not_found[:20]:
-            report(f"  missing: {name}")
-    return sorted(matching.items())
+
+def _load_xml_genres() -> dict[str, str]:
+    """Map lowercase file stem -> genre from the Rekordbox XML collection."""
+    xml_path = Path(settings.REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH)
+    if not xml_path.is_file():
+        logger.warning("Rekordbox XML not found: %s (using file tags only)", xml_path)
+        return {}
+    genres: dict[str, str] = {}
+    for _, element in ET.iterparse(xml_path):
+        if element.tag != "TRACK":
+            continue
+        genre = element.get("Genre")
+        location = element.get("Location")
+        if genre and location:
+            path = unquote(location).replace("\\", "/")
+            genres.setdefault(PurePosixPath(path).stem.lower(), genre)
+        element.clear()
+    return genres
+
+
+
+
+def _run_ssh_with_retry(
+    target: VpsTarget,
+    remote_command: str,
+    stdin: str | None = None,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+) -> str:
+    """Run SSH command with retry logic for transient network failures.
+    
+    Retries on connection errors (DNS, connection refused, timeout).
+    Permanent errors (exit code != 0, etc.) are not retried.
+    """
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return _run_ssh(target, remote_command, stdin)
+        except (socket.gaierror, socket.error, OSError, paramiko.ssh_exception.NoValidConnectionsError) as exc:
+            last_error = exc
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)  # exponential backoff
+                logger.warning(
+                    "SSH command failed (attempt %d/%d), retrying in %.1f seconds: %s",
+                    attempt + 1, max_retries, wait_time, exc
+                )
+                time.sleep(wait_time)
+            else:
+                logger.error("SSH command failed after %d attempts: %s", max_retries, exc)
+    raise last_error
 
 
 def _run_ssh(target: VpsTarget, remote_command: str, stdin: str | None = None) -> str:
@@ -156,7 +192,7 @@ def _run_ssh(target: VpsTarget, remote_command: str, stdin: str | None = None) -
 def list_remote_files(target: VpsTarget) -> set[str]:
     """Relative posix paths of the complete files under the remote dir."""
     remote_dir = shlex.quote(target.remote_dir)
-    output = _run_ssh(
+    output = _run_ssh_with_retry(
         target,
         f"mkdir -p {remote_dir} && "
         f"find {remote_dir} -type f ! -name '*{PARTIAL_SUFFIX}' -printf '%P\\n'",
@@ -165,12 +201,31 @@ def list_remote_files(target: VpsTarget) -> set[str]:
 
 
 def _sftp_upload(target: VpsTarget, local_path: Path, remote_path: str) -> None:
-    """Upload to a temporary name, then rename so partial uploads never look complete."""
+    """Upload to a temporary name, then rename so partial uploads never look complete.
+    
+    Retries on transient network failures.
+    """
     partial_path = remote_path + PARTIAL_SUFFIX
-    with target.connect() as client:
-        with client.open_sftp() as sftp:
-            sftp.put(str(local_path), partial_path)
-    _run_ssh(target, f"mv -f {shlex.quote(partial_path)} {shlex.quote(remote_path)}")
+    max_retries = 3
+    retry_delay = 1.0
+    
+    for attempt in range(max_retries):
+        try:
+            with target.connect() as client:
+                with client.open_sftp() as sftp:
+                    sftp.put(str(local_path), partial_path)
+            _run_ssh_with_retry(target, f"mv -f {shlex.quote(partial_path)} {shlex.quote(remote_path)}")
+            return
+        except (socket.gaierror, socket.error, OSError, paramiko.ssh_exception.NoValidConnectionsError) as exc:
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)
+                logger.warning(
+                    "SFTP upload failed (attempt %d/%d), retrying in %.1f seconds: %s",
+                    attempt + 1, max_retries, wait_time, exc
+                )
+                time.sleep(wait_time)
+            else:
+                raise
 
 
 def update_remote_metadata(
@@ -190,7 +245,7 @@ def update_remote_metadata(
         + " (e.g. sudo apt install python3-mutagen)'}, sys.stdout)\n"
         + "else:\n    run_remote()\n"
     )
-    output = _run_ssh(
+    output = _run_ssh_with_retry(
         target,
         f"python3 -c {shlex.quote(script)}",
         stdin=json.dumps({"dry_run": dry_run, "files": files}),
@@ -216,8 +271,8 @@ def sync_to_vps(
     if not local_dir.is_dir():
         raise FileNotFoundError(f"Local directory not found: {local_dir}")
 
-    report(f"Reading Rekordbox genres matching /{genre_pattern}/ ...")
-    matching = find_matching_files(local_dir, genre_pattern, report=report)
+    report(f"Scanning {local_dir} for genre matching /{genre_pattern}/ ...")
+    matching = find_matching_files(local_dir, genre_pattern)
     result.matched = len(matching)
 
     report(f"{len(matching)} matching file(s). Listing files on {target.host} ...")
@@ -255,6 +310,7 @@ def sync_to_vps(
             result.removed.append(relative)
             report(f"removed: {relative}")
         except Exception as exc:
+            report(f"Failed to remove: {relative} - {exc}")
             logger.error("Failed to remove %s: %s", relative, exc)
             result.remove_failed.append((relative, str(exc)))
 
@@ -270,7 +326,7 @@ def sync_to_vps(
     remote_dirs = sorted(
         {posixpath.join(target.remote_dir, posixpath.dirname(rel)) for _, rel in to_push}
     )
-    _run_ssh(target, "mkdir -p " + " ".join(shlex.quote(d) for d in remote_dirs))
+    _run_ssh_with_retry(target, "mkdir -p " + " ".join(shlex.quote(d) for d in remote_dirs))
 
     for index, (local_path, relative) in enumerate(to_push, start=1):
         report(f"[{index}/{len(to_push)}] pushing {relative}")
@@ -291,8 +347,22 @@ def sync_to_vps(
 
 
 def _remove_remote_file(target: VpsTarget, remote_path: str) -> None:
-    """Remove one file whose path was returned by the remote find command."""
-    _run_ssh(target, f"rm -f -- {shlex.quote(remote_path)}")
+    """Remove one file whose path was returned by the remote find command.
+    
+    Validates that the file is successfully removed. If the file exists but
+    cannot be deleted, fails with a clear error message.
+    """
+    quoted_path = shlex.quote(remote_path)
+    # Check if file exists first, then remove it, then verify it's gone
+    # This ensures we catch permission/access errors clearly
+    cmd = (
+        f"if [ -f {quoted_path} ]; then "
+        f"rm -- {quoted_path} && "
+        f"if [ -f {quoted_path} ]; then "
+        f"echo 'File still exists after rm'; exit 1; "
+        f"fi; fi"
+    )
+    _run_ssh_with_retry(target, cmd)
 
 
 def _sync_metadata(
