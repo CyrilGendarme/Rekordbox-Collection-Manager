@@ -103,33 +103,39 @@ def find_matching_files(
 ) -> list[tuple[Path, dict[str, list[str]]]]:
     """Recursively list audio files whose genre matches, with their tags.
 
-    The genre comes from the Rekordbox XML export (matched by file name, extension
-    ignored) and replaces the file's genre tag; files absent from the XML keep
-    their own tag.
+    Only files that exist in the Rekordbox XML export are considered. The genre
+    comes from the XML (matched by file name, extension ignored) and replaces
+    the file's genre tag.
     """
     regex = re.compile(genre_pattern, re.IGNORECASE)
     lowered_extensions = tuple(ext.lower() for ext in extensions)
-    xml_genres = _load_xml_genres()
+    xml_tracks = _load_xml_tracks()
     matching = []
     for path in sorted(local_dir.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in lowered_extensions:
             continue
+        file_stem = path.stem.lower()
+        xml_track = xml_tracks.get(file_stem)
+        if not xml_track:
+            continue
         tags = tag_tools.read_tags(path)
-        xml_genre = xml_genres.get(path.stem.lower())
-        if xml_genre:
-            tags["genre"] = [xml_genre]
+        tags["genre"] = [xml_track["genre"]]
         if regex.search(" / ".join(tags.get("genre", []))):
             matching.append((path, tags))
     return matching
 
 
-def _load_xml_genres() -> dict[str, str]:
-    """Map lowercase file stem -> genre from the Rekordbox XML collection."""
+def _load_xml_tracks() -> dict[str, dict[str, str]]:
+    """Map lowercase file stem -> track info from the Rekordbox XML collection.
+    
+    Returns {file_stem: {"genre": genre_value}} for all tracks in the XML.
+    Only tracks with both a genre and location are included.
+    """
     xml_path = Path(settings.REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH)
     if not xml_path.is_file():
-        logger.warning("Rekordbox XML not found: %s (using file tags only)", xml_path)
+        logger.warning("Rekordbox XML not found: %s (no tracks will be synced)", xml_path)
         return {}
-    genres: dict[str, str] = {}
+    tracks: dict[str, dict[str, str]] = {}
     for _, element in ET.iterparse(xml_path):
         if element.tag != "TRACK":
             continue
@@ -137,9 +143,10 @@ def _load_xml_genres() -> dict[str, str]:
         location = element.get("Location")
         if genre and location:
             path = unquote(location).replace("\\", "/")
-            genres.setdefault(PurePosixPath(path).stem.lower(), genre)
+            stem = PurePosixPath(path).stem.lower()
+            tracks.setdefault(stem, {"genre": genre})
         element.clear()
-    return genres
+    return tracks
 
 
 
