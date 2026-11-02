@@ -187,6 +187,10 @@ def write_audio_metadata(
         logger.debug("Unsupported file format for metadata update: %s", path)
         return False
 
+    # Normalize year: convert 0 to None (0 is not a valid year)
+    if year == 0 or year == "0":
+        year = None
+
     try:
         from mutagen.id3 import ID3, TALB, TBPM, TCON, TDRC, TIT2, TPE1, TPUB, TXXX
         from mutagen.flac import FLAC
@@ -392,6 +396,8 @@ def append_album_ref(album_name: str, album_ref: str) -> str:
 
 def _coerce_year(value: object) -> int | None:
     try:
-        return int(value) if value not in (None, "") else None
+        year = int(value) if value not in (None, "") else None
+        # Convert year 0 to None (0 is not a valid year)
+        return None if year == 0 else year
     except (TypeError, ValueError):
         return None

@@ -289,7 +289,8 @@ class RekordboxDAO:
         if label:
             core_payload["label"] = label
         if year is not None:
-            core_payload["year"] = year
+            # Convert year 0 to None (0 is not a valid year)
+            core_payload["year"] = None if year == 0 else year
 
         self.update_info_of_track(track_id, **core_payload)
 
@@ -319,7 +320,8 @@ class RekordboxDAO:
             if album is not None:
                 fields["album"] = album
             if year is not None:
-                fields["year"] = year
+                # Convert year 0 to None (0 is not a valid year)
+                fields["year"] = None if year == 0 else year
             if label is not None:
                 fields["label"] = label
             if genre is not None:

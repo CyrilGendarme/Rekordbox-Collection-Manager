@@ -74,6 +74,10 @@ class Track:
         """
 
         bpm = row.BPM
+        release_year = row.ReleaseYear
+        # Convert year 0 to None (0 is not a valid year)
+        if release_year == 0:
+            release_year = None
 
         # TODO : for now, fields are set with raw values, not actual references to Artist/Album/Tags IDs
 
@@ -88,7 +92,7 @@ class Track:
             org_folder_path=getattr(row, "OrgFolderPath", None) or row.FolderPath,
             album=row.AlbumName,
             label=getattr(row, "LabelName", None),
-            year=row.ReleaseYear,
+            year=release_year,
             comment=row.Commnt,
             length=row.Length / 60.0,
             key=row.KeyName,

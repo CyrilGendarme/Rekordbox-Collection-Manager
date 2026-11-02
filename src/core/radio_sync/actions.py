@@ -117,11 +117,16 @@ def find_matching_files(
         file_stem = path.stem.lower()
         xml_track = xml_tracks.get(file_stem)
         if not xml_track:
+            logger.debug("File not in XML: %s (stem=%s)", path.name, file_stem)
             continue
         tags = tag_tools.read_tags(path)
         tags["genre"] = [xml_track["genre"]]
         if regex.search(" / ".join(tags.get("genre", []))):
             matching.append((path, tags))
+            logger.debug("Matched file: %s (stem=%s, genre=%s)", path.name, file_stem, xml_track["genre"])
+        else:
+            logger.debug("File in XML but genre doesn't match pattern: %s (stem=%s, genre=%s)", path.name, file_stem, xml_track["genre"])
+    logger.info("Found %d files matching genre pattern /%s/", len(matching), genre_pattern)
     return matching
 
 
@@ -144,8 +149,10 @@ def _load_xml_tracks() -> dict[str, dict[str, str]]:
         if genre and location:
             path = unquote(location).replace("\\", "/")
             stem = PurePosixPath(path).stem.lower()
+            logger.debug("XML track: location=%s, stem=%s, genre=%s", location, stem, genre)
             tracks.setdefault(stem, {"genre": genre})
         element.clear()
+    logger.info("Loaded %d tracks from Rekordbox XML", len(tracks))
     return tracks
 
 
@@ -302,6 +309,10 @@ def sync_to_vps(
         f"{result.skipped} already on VPS, {len(to_push)} to push, "
         f"{len(to_remove)} no longer in collection."
     )
+    if to_remove:
+        logger.info("Files to remove from VPS: %s", to_remove)
+        for file in to_remove:
+            report(f"marked for removal: {file}")
 
     if sync_metadata and already_remote:
         _sync_metadata(target, already_remote, dry_run, result, report)

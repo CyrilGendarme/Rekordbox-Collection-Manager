@@ -382,16 +382,94 @@ def _build_media_link_from_item(item: dict, media_link_cls, platform_value):
 def _build_bandcamp_attempts(
     persistent_profile_dir: str,
 ) -> list[dict]:
+    """Build a list of retry attempts with varying driver configurations.
+    
+    Each attempt randomizes certain Selenium properties to evade detection:
+    - Window size variations
+    - Different debug ports
+    - Always respects HEADLESS mode unless DEBUG_NOT_HEADLESS is set
+    """
+    # Determine if headless mode should be enabled
+    # App should ALWAYS be headless except if DEBUG_NOT_HEADLESS is explicitly set
+    use_headless = _is_truthy_env(os.environ.get("DEBUG_NOT_HEADLESS"), default=False)
+    use_headless = not use_headless  # Invert: True = headless, False = visible
+    
+    # Randomize window sizes to avoid fingerprinting
+    window_sizes = [
+        (1280, 800),
+        (1366, 768),
+        (1440, 900),
+        (1920, 1080),
+        (1024, 768),
+    ]
+    
     attempts = [
         {
             "name": "headless-persistent",
-            "headless": True,
+            "headless": use_headless,
             "debug_port": 9223,
             "profile_dir": persistent_profile_dir,
             "cleanup": False,
+            "width": 1280,
+            "height": 800,
         },
     ]
+    
+    # Add retry attempts with randomized properties (always respecting headless mode)
+    for attempt_num in range(1, 4):
+        width, height = random.choice(window_sizes)
+        debug_port = 9223 + attempt_num
+        
+        attempts.append({
+            "name": f"retry-attempt-{attempt_num}",
+            "headless": use_headless,
+            "debug_port": debug_port,
+            "profile_dir": persistent_profile_dir,
+            "cleanup": False,
+            "width": width,
+            "height": height,
+        })
+    
     return attempts
+
+
+def _randomize_driver_anti_detection(driver) -> None:
+    """Apply random anti-detection techniques to the Selenium driver.
+    
+    This helps evade Bandcamp's Selenium detection by introducing randomness.
+    """
+    try:
+        # Randomize user agent
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        ]
+        random_ua = random.choice(user_agents)
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {
+            "userAgent": random_ua,
+            "platform": "Win32",
+        })
+        logger.info("Bandcamp driver randomized | user_agent=%s", random_ua[:50])
+    except Exception as exc:
+        logger.debug("Bandcamp user agent randomization failed | %s", _format_exception_for_log(exc))
+    
+    try:
+        # Add random delay to appear more human
+        random_delay = random.uniform(0.5, 2.5)
+        time.sleep(random_delay)
+    except Exception:
+        pass
+    
+    try:
+        # Randomize window size
+        window_sizes = [(1280, 800), (1366, 768), (1440, 900), (1920, 1080), (1024, 768)]
+        width, height = random.choice(window_sizes)
+        driver.set_window_size(width, height)
+        logger.info("Bandcamp driver window resized | size=%dx%d", width, height)
+    except Exception as exc:
+        logger.debug("Bandcamp window resize failed | %s", _format_exception_for_log(exc))
 
 
 def _bandcamp_driver_key(
@@ -726,12 +804,12 @@ def search_bandcamp(query: str, limit: int = 5) -> list[dict]:
     for attempt_index, attempt in enumerate(attempts):
         try:
             driver = _get_shared_bandcamp_driver(
-                width=1280,
-                height=800,
+                width=attempt.get("width", 1280),
+                height=attempt.get("height", 800),
                 debug_port=attempt["debug_port"],
                 profile_dir=attempt["profile_dir"],
                 chrome_dev_console=False,
-                headless_mode=use_headless,
+                headless_mode=attempt.get("headless", use_headless),
                 use_debug_attach=use_debug_attach,
             )
 
@@ -752,6 +830,48 @@ def search_bandcamp(query: str, limit: int = 5) -> list[dict]:
             )
             return links
 
+        except RuntimeError as exc:
+            last_exc = exc
+            # Check if this is a Bandcamp client challenge (Selenium detection)
+            if "client challenge page" in str(exc).lower():
+                logger.warning(
+                    "Bandcamp client challenge detected | attempt=%s | applying anti-detection",
+                    attempt["name"],
+                )
+                # Invalidate the shared driver so next attempt gets a fresh one
+                with _BANDCAMP_DRIVER_LOCK:
+                    global _BANDCAMP_SHARED_DRIVER, _BANDCAMP_SHARED_DRIVER_KEY
+                    _BANDCAMP_SHARED_DRIVER = None
+                    _BANDCAMP_SHARED_DRIVER_KEY = None
+                
+                # Apply anti-detection measures if we have retries left
+                if attempt_index < len(attempts) - 1:
+                    logger.info("Bandcamp randomizing driver properties for next attempt")
+                    try:
+                        if driver:
+                            _randomize_driver_anti_detection(driver)
+                    except Exception as randomize_exc:
+                        logger.debug(
+                            "Bandcamp anti-detection randomization error | %s",
+                            _format_exception_for_log(randomize_exc)
+                        )
+            
+            logger.warning(
+                "Bandcamp attempt failed | attempt=%s | %s",
+                attempt["name"],
+                _format_exception_for_log(exc),
+                exc_info=True,
+            )
+            
+            if attempt_index < len(attempts) - 1:
+                sleep_seconds = _compute_backoff_seconds(attempt_index=attempt_index)
+                logger.info(
+                    "Bandcamp retry backoff | attempt=%s sleeping=%.2fs",
+                    attempt["name"],
+                    sleep_seconds,
+                )
+                time.sleep(sleep_seconds)
+        
         except Exception as exc:
             last_exc = exc
             logger.warning(
@@ -768,6 +888,7 @@ def search_bandcamp(query: str, limit: int = 5) -> list[dict]:
                     sleep_seconds,
                 )
                 time.sleep(sleep_seconds)
+    
     logger.warning(
         "Bandcamp search failed after Selenium retries | selenium=%s",
         _format_exception_for_log(last_exc) if last_exc else "none",
