@@ -26,7 +26,9 @@ class Track:
     org_folder_path: Optional[str] = None  # Original folder path
     play_count: Optional[int] = None  # Number of times the track has been played
     date_added: Optional[str] = None
-
+    image_path: Optional[str] = None  # Rekordbox artwork path, informational only
+    has_file_cover: Optional[bool] = None  # Embedded cover in the audio file itself
+    cover_pending: bool = False  # Cover found online, not yet written
     def __post_init__(self):
         """Ensure tags and position_marks are always lists."""
         if self.tags is None:
@@ -35,6 +37,10 @@ class Track:
             self.tags = [tag.strip() for tag in self.tags.split(",") if tag.strip()]
         if self.position_marks is None:
             self.position_marks = []
+
+    @property
+    def has_cover(self) -> bool:
+        return bool(self.has_file_cover) or self.cover_pending
 
     @property
     def display_name(self) -> str:
@@ -99,4 +105,5 @@ class Track:
             tags=row.MyTagNames,
             play_count=row.DJPlayCount,
             date_added=getattr(row, "StockDate", None),
+            image_path=getattr(row, "ImagePath", None) or None,
         )

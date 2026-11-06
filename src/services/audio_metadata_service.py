@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from functools import lru_cache
 import logging
@@ -7,7 +8,10 @@ from pathlib import Path
 
 from src.services.musicbrainz_service import lookup_musicbrainz_album
 from src.services.bandcamp_service import first_result_from_bandcamp_search
-from src.services.discogs_service import lookup_discogs_metadata
+from src.services.discogs_service import (
+    lookup_discogs_cover_url,
+    lookup_discogs_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +24,75 @@ class CompletedMetadata:
     year: int | None = None
     label: str = ""
     source: str = ""
+
+
+@dataclass(frozen=True)
+class CoverImage:
+    data: bytes
+    source: str
+
+
+@lru_cache(maxsize=256)
+def _download_image(url: str) -> bytes:
+    import httpx
+
+    try:
+        response = httpx.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+                )
+            },
+            timeout=25,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        return response.content
+    except Exception:
+        logger.warning("Cover image download failed | url=%s", url, exc_info=True)
+        return b""
+
+
+def lookup_track_cover_image(
+    title: str, artist: str, album: str = ""
+) -> CoverImage | None:
+    """Find a cover image, trying Bandcamp first and Discogs second."""
+    normalized_title = (title or "").strip()
+    normalized_artist = (artist or "").strip()
+    normalized_album = (album or "").strip()
+    if not normalized_title or not normalized_artist:
+        return None
+
+    try:
+        bandcamp_data = first_result_from_bandcamp_search(
+            title=normalized_title, artist=normalized_artist
+        )
+        if bandcamp_data:
+            encoded = getattr(bandcamp_data, "thumbnail_media_base64", None)
+            if encoded:
+                return CoverImage(base64.b64decode(encoded), "Bandcamp")
+            thumbnail_url = getattr(bandcamp_data, "thumbnail", None)
+            if thumbnail_url:
+                data = _download_image(thumbnail_url)
+                if data:
+                    return CoverImage(data, "Bandcamp")
+    except Exception:
+        logger.exception("Bandcamp cover lookup failed")
+
+    try:
+        cover_url = lookup_discogs_cover_url(
+            normalized_title, normalized_artist, normalized_album
+        )
+        if cover_url:
+            data = _download_image(cover_url)
+            if data:
+                return CoverImage(data, "Discogs")
+    except Exception:
+        logger.exception("Discogs cover lookup failed")
+
+    return None
 
 
 def _metadata_is_complete(metadata: CompletedMetadata) -> bool:
@@ -376,6 +449,118 @@ def copy_mp3_metadata(source_path: str, target_path: str) -> bool:
         logger.exception(
             "Failed to copy MP3 metadata: %s -> %s", source_path, target_path
         )
+        return False
+
+
+def resize_cover_jpeg(image_bytes: bytes, max_size: int) -> bytes:
+    """Return a JPEG of the image fitted inside max_size x max_size (never upscaled)."""
+    import io
+
+    from PIL import Image
+
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    image.thumbnail((max_size, max_size))
+    output = io.BytesIO()
+    image.save(output, format="JPEG", quality=90)
+    return output.getvalue()
+
+
+def has_embedded_cover(file_path: str | Path) -> bool:
+    """True when the audio file already carries an embedded picture."""
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    try:
+        if suffix in {".mp3", ".wav"}:
+            from mutagen.mp3 import MP3
+            from mutagen.wave import WAVE
+
+            audio = MP3(str(path)) if suffix == ".mp3" else WAVE(str(path))
+            return bool(audio.tags and audio.tags.getall("APIC"))
+        if suffix == ".flac":
+            from mutagen.flac import FLAC
+
+            return bool(FLAC(str(path)).pictures)
+        if suffix == ".ogg":
+            from mutagen.oggvorbis import OggVorbis
+
+            return bool(OggVorbis(str(path)).get("metadata_block_picture"))
+        if suffix in {".m4a", ".mp4"}:
+            from mutagen.mp4 import MP4
+
+            return bool((MP4(str(path)).tags or {}).get("covr"))
+    except Exception:
+        logger.exception("Could not inspect embedded cover for: %s", path)
+    return False
+
+
+def embed_cover_art(
+    file_path: str | Path, image_bytes: bytes, overwrite: bool = False
+) -> bool:
+    """Embed a front-cover picture into an audio file. Returns True on success.
+
+    An existing embedded cover is kept unless overwrite is True.
+    """
+    path = Path(file_path)
+    suffix = path.suffix.lower()
+    if not path.is_file() or suffix not in {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".mp4"}:
+        return False
+    if not overwrite and has_embedded_cover(path):
+        return True
+
+    try:
+        jpeg = resize_cover_jpeg(image_bytes, 800)
+
+        if suffix in {".mp3", ".wav"}:
+            from mutagen.id3 import APIC, ID3
+            from mutagen.mp3 import MP3
+            from mutagen.wave import WAVE
+
+            if suffix == ".mp3":
+                audio = MP3(str(path))
+                if audio.tags is None:
+                    audio.tags = ID3()
+            else:
+                audio = WAVE(str(path))
+                if audio.tags is None:
+                    audio.add_tags()
+            audio.tags.delall("APIC")
+            audio.tags.add(
+                APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=jpeg)
+            )
+            audio.save()
+            return True
+
+        if suffix in {".flac", ".ogg"}:
+            from mutagen.flac import FLAC, Picture
+
+            picture = Picture()
+            picture.type = 3
+            picture.mime = "image/jpeg"
+            picture.desc = "Cover"
+            picture.data = jpeg
+
+            if suffix == ".flac":
+                audio = FLAC(str(path))
+                audio.clear_pictures()
+                audio.add_picture(picture)
+            else:
+                from mutagen.oggvorbis import OggVorbis
+
+                audio = OggVorbis(str(path))
+                audio["metadata_block_picture"] = [
+                    base64.b64encode(picture.write()).decode("ascii")
+                ]
+            audio.save()
+            return True
+
+        from mutagen.mp4 import MP4, MP4Cover
+
+        audio = MP4(str(path))
+        audio["covr"] = [MP4Cover(jpeg, imageformat=MP4Cover.FORMAT_JPEG)]
+        audio.save()
+        return True
+    except Exception:
+        logger.exception("Failed to embed cover art into: %s", path)
         return False
 
 

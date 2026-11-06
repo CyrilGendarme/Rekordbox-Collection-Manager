@@ -395,6 +395,33 @@ class RekordboxDAO:
         self.db.commit()
         return content
 
+    def set_track_artwork(self, track_id: int | str, image_bytes: bytes) -> bool:
+        """Create Rekordbox artwork files (full/medium/small) and link them to a track."""
+        from src.services.audio_metadata_service import resize_cover_jpeg
+
+        try:
+            content = self._get_track_by_id(track_id)
+            if content is None:
+                raise ValueError(f"Track not found for ID: {track_id}")
+
+            uid = str(uuid4())
+            relative = f"/PIONEER/Artwork/{uid[:3]}/{uid[3:]}"
+            folder = Path(self.db.share_directory) / relative.lstrip("/")
+            folder.mkdir(parents=True, exist_ok=True)
+            for name, size in (("artwork", 800), ("artwork_m", 240), ("artwork_s", 80)):
+                (folder / f"{name}.jpg").write_bytes(
+                    resize_cover_jpeg(image_bytes, size)
+                )
+
+            content.ImagePath = f"{relative}/artwork.jpg"
+            self.db.commit()
+            return True
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Failed to set artwork in Rekordbox for track_id=%s", track_id
+            )
+            return False
+
     def get_tracks(self, is_valid: Optional[callable] = None) -> list[DjmdContent]:
         """Return tracks in the Rekordbox collection matching the is_valid condition."""
 

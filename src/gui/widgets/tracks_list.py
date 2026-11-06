@@ -19,6 +19,8 @@ _LIST_ATTRS = {"tags", "position_marks"}
 def _attr_as_str(value) -> str:
     if value is None:
         return ""
+    if isinstance(value, bool):
+        return "☑" if value else "☐"
     if isinstance(value, list):
         return ", ".join(str(v) for v in value)
     return str(value)

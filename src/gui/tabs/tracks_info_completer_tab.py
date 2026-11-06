@@ -10,7 +10,11 @@ from ..tab_system import ConfigSubtabFeature, FeatureContext
 
 from src.core.tracks_info_completer.helpers import standardize_name
 from src.core.tracks_info_completer.actions import update_track_rekordbox_metadata
-from src.services import complete_track_metadata
+from src.services import (
+    complete_track_metadata,
+    has_embedded_cover,
+    lookup_track_cover_image,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,10 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         self._original_values: dict = {}
         self._original_names: dict = {}
 
+        # track id -> CoverImage, or None when no service had a cover.
+        self._cover_cache: dict = {}
+        self._covers_applied: set = set()
+        self._file_cover_probe_generation = 0
     # ------------------------------------------------------------------
     # TabFeature API
     # ------------------------------------------------------------------
@@ -88,6 +96,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                 ("label", 180),
                 ("genre", 140),
                 ("bpm", 70),
+                ("has_cover", 70),
             ],
             on_select=self._on_track_selected,
             on_filter_changed=self.on_filter_changed,
@@ -96,7 +105,6 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
             editable_columns=self._EDITABLE_COLS,
         )
         self.tracks_list.grid(row=1, column=0, sticky="nsew")
-
         context.controller.register_collection_loaded_callbacks(
             self.tracks_list.set_tracks
         )
@@ -168,6 +176,42 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                 },
             )
 
+        self._queue_file_cover_probe(tracks)
+
+    def _queue_file_cover_probe(self, tracks: List[Track]) -> None:
+        """Check, in the background, whether each track's audio file already
+        has an embedded cover. Results are cached on the Track instance."""
+        to_probe = [t for t in tracks if t.has_file_cover is None and t.file_path]
+        if not to_probe:
+            return
+
+        self._file_cover_probe_generation += 1
+        generation = self._file_cover_probe_generation
+        threading.Thread(
+            target=self._file_cover_probe_worker,
+            args=(to_probe, generation),
+            daemon=True,
+        ).start()
+
+    def _file_cover_probe_worker(self, tracks: List[Track], generation: int) -> None:
+        for track in tracks:
+            if generation != self._file_cover_probe_generation:
+                return  # A newer filter/refresh superseded this probe.
+            try:
+                track.has_file_cover = has_embedded_cover(track.file_path)
+            except Exception:
+                logger.exception(
+                    "Could not check embedded cover for track_id=%s", track.id
+                )
+                track.has_file_cover = False
+
+        if self.root is not None and generation == self._file_cover_probe_generation:
+            self.root.after(0, self._refresh_tracks_list_display)
+
+    def _refresh_tracks_list_display(self) -> None:
+        if self.tracks_list is not None:
+            self.tracks_list.set_tracks(self.tracks_list.get_tracks())
+
     def _on_track_selected(self, track: Optional[Track]) -> None:
         self.selected_track = track
         self.selected_tracks = self.tracks_list.get_selected_tracks()
@@ -234,6 +278,41 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         if status:
             self.status_var.set(status)
 
+    def _complete_track_fields(self, track: Track) -> bool:
+        """Fill album/year/label from services; return True when the track changed."""
+        completion = complete_track_metadata(
+            title=track.name or "",
+            artist=track.artist or "",
+            album=track.album or "",
+        )
+        changed = False
+        edited = self._edited_values.setdefault(str(track.id), {})
+
+        if completion.album and completion.album != track.album:
+            track.album = completion.album
+            edited["album"] = completion.album
+            changed = True
+        if completion.year is not None and completion.year != track.year:
+            track.year = completion.year
+            edited["year"] = completion.year
+            changed = True
+        if completion.label and completion.label != track.label:
+            track.label = completion.label
+            edited["label"] = completion.label
+            changed = True
+        return changed
+
+    def _ensure_cover_cached(self, track: Track) -> None:
+        cover_key = str(track.id)
+        if cover_key not in self._cover_cache:
+            self._cover_cache[cover_key] = lookup_track_cover_image(
+                title=track.name or "",
+                artist=track.artist or "",
+                album=track.album or "",
+            )
+        # Staged: written to the audio file and Rekordbox on Validate.
+        track.cover_pending = self._cover_cache[cover_key] is not None
+
     def _complete_tracks_info_worker(self, target_tracks: List[Track]) -> None:
         changed_tracks = 0
         failed_tracks = 0
@@ -241,45 +320,35 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
 
         try:
             for track in target_tracks:
-                if track.album and track.label and track.year and track.year != 0:
-                    continue  # Skip tracks that already have all metadata.
+                if not (track.album and track.label and track.year and track.year != 0):
+                    try:
+                        if self._complete_track_fields(track):
+                            changed_tracks += 1
+                    except Exception:
+                        failed_tracks += 1
+                        logger.exception(
+                            "Track metadata completion failed for track_id=%s title=%r artist=%r",
+                            track.id,
+                            track.name,
+                            track.artist,
+                        )
+
+                if track.has_file_cover is None and track.file_path:
+                    try:
+                        track.has_file_cover = has_embedded_cover(track.file_path)
+                    except Exception:
+                        logger.exception(
+                            "Could not check embedded cover for track_id=%s", track.id
+                        )
+                        track.has_file_cover = False
+
+                if track.has_file_cover:
+                    continue  # Audio file already has an embedded cover.
 
                 try:
-                    completion = complete_track_metadata(
-                        title=track.name or "",
-                        artist=track.artist or "",
-                        album=track.album or "",
-                    )
+                    self._ensure_cover_cached(track)
                 except Exception:
-                    failed_tracks += 1
-                    logger.exception(
-                        "Track metadata completion failed for track_id=%s title=%r artist=%r",
-                        track.id,
-                        track.name,
-                        track.artist,
-                    )
-                    continue
-
-                track_changed = False
-                edited = self._edited_values.setdefault(str(track.id), {})
-
-                if completion.album and completion.album != track.album:
-                    track.album = completion.album
-                    edited["album"] = completion.album
-                    track_changed = True
-
-                if completion.year is not None and completion.year != track.year:
-                    track.year = completion.year
-                    edited["year"] = completion.year
-                    track_changed = True
-
-                if completion.label and completion.label != track.label:
-                    track.label = completion.label
-                    edited["label"] = completion.label
-                    track_changed = True
-
-                if track_changed:
-                    changed_tracks += 1
+                    logger.exception("Cover lookup failed for track_id=%s", track.id)
         except Exception as exc:
             logger.exception("Unexpected error during tracks metadata completion")
             unexpected_error = str(exc)
@@ -356,15 +425,24 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                 )
                 self._edited_values[track_id] = dict(current_values)
 
-        if not updates:
+        covers = {
+            str(track.id): self._cover_cache[str(track.id)].data
+            for track in all_tracks
+            if self._cover_cache.get(str(track.id)) is not None
+            and str(track.id) not in self._covers_applied
+        }
+
+        if not updates and not covers:
             self.status_var.set("No modified tracks to save.")
             return
 
-        update_track_rekordbox_metadata(
+        covers_embedded = update_track_rekordbox_metadata(
             all_tracks,
             updates,
             set_status_callback=self.status_var.set,
+            covers=covers,
         )
+        self._covers_applied.update(covers_embedded)
 
         # Mark the submitted rows as clean so a follow-up Validate does not
         # re-send the same values if the view refreshes before the database reloads.

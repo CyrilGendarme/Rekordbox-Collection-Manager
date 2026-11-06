@@ -747,6 +747,7 @@ class To33RpmFeature(ConfigSubtabFeature):
                 if item.source_track is None:
                     with RekordboxDAO() as dao:
                         dao.add_audio_file_as_track(item.output_path)
+                    self._track_imported_output(item.output_path)
                     item.status = "imported"
                     imported_local += 1
                 else:

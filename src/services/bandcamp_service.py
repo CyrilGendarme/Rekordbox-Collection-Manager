@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 _BANDCAMP_DRIVER_LOCK = threading.Lock()
 _BANDCAMP_SHARED_DRIVER = None
 _BANDCAMP_SHARED_DRIVER_KEY: tuple | None = None
+# Successful first-result lookups only, so metadata and cover lookups share one scrape.
+_FIRST_RESULT_CACHE: dict = {}
+_FIRST_RESULT_CACHE_LOCK = threading.Lock()
 
 
 def _is_truthy_env(value: str | None, default: bool = True) -> bool:
@@ -905,8 +908,15 @@ def first_result_from_bandcamp_search(title: str, artist: str) -> dict | None:
     or None if no results are found.
     """
     query = f"{artist} - {title}" if artist else title
+    with _FIRST_RESULT_CACHE_LOCK:
+        cached = _FIRST_RESULT_CACHE.get(query)
+    if cached is not None:
+        return cached
+
     results = search_bandcamp(query, limit=1)
     if results:
+        with _FIRST_RESULT_CACHE_LOCK:
+            _FIRST_RESULT_CACHE[query] = results[0]
         return results[0]
     return None
 

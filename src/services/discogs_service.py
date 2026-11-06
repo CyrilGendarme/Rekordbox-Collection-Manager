@@ -173,6 +173,20 @@ def _fetch_price_stats(release_id: int) -> Optional[PriceStats]:
     )
 
 
+def _detail_cover_image(detail: dict) -> Optional[str]:
+    """Cover URL from release detail; search results lack images without OAuth."""
+    images = detail.get("images") or []
+    ordered = sorted(
+        (img for img in images if isinstance(img, dict)),
+        key=lambda img: img.get("type") != "primary",
+    )
+    for img in ordered:
+        url = _safe(img.get("uri") or img.get("uri150"))
+        if url:
+            return url
+    return None
+
+
 def _parse_result(
     item: dict,
     *,
@@ -248,7 +262,8 @@ def _parse_result(
         label=label_name,
         catno=catno_val,
         format=fmt,
-        cover_image=_safe(item.get("cover_image") or item.get("thumb")),
+        cover_image=_safe(item.get("cover_image") or item.get("thumb"))
+        or _detail_cover_image(detail),
         resource_url=f"https://www.discogs.com/release/{release_id}",
         tracklist=tracklist,
         price_stats=price_stats,
@@ -440,6 +455,40 @@ def _lookup_discogs_metadata_cached(
         label_val = label_val[0] if label_val else None
 
     return album_name, year_int, label_val, getattr(best, "catno", None)
+
+
+@lru_cache(maxsize=1024)
+def _lookup_discogs_cover_url_cached(title: str, artist: str, album: str) -> str:
+    try:
+        results = search_releases(
+            artist=artist or None,
+            track=title or None,
+            album=album or None,
+            limit=3,
+            include_market_stats=False,
+        )
+    except Exception:
+        return ""
+
+    for result in results:
+        cover = (getattr(result, "cover_image", None) or "").strip()
+        if cover:
+            return cover
+    return ""
+
+
+def lookup_discogs_cover_url(title: str, artist: str, album: str = "") -> str:
+    """Return the cover image URL of the first matching Discogs release, or ''."""
+    normalized_title = (title or "").strip()
+    normalized_artist = (artist or "").strip()
+    normalized_album = (album or "").strip()
+    if not normalized_title or not normalized_artist:
+        return ""
+    return _lookup_discogs_cover_url_cached(
+        "" if normalized_album else normalized_title,
+        normalized_artist,
+        normalized_album,
+    )
 
 
 def lookup_discogs_metadata(title: str, artist: str, album: str = "") -> dict:
