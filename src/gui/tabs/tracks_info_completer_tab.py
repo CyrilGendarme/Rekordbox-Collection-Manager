@@ -12,6 +12,7 @@ from src.core.tracks_info_completer.helpers import standardize_name
 from src.core.tracks_info_completer.actions import update_track_rekordbox_metadata
 from src.services import (
     complete_track_metadata,
+    embed_cover_art,
     has_embedded_cover,
     lookup_track_cover_image,
 )
@@ -44,9 +45,6 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         self._original_values: dict = {}
         self._original_names: dict = {}
 
-        # track id -> CoverImage, or None when no service had a cover.
-        self._cover_cache: dict = {}
-        self._covers_applied: set = set()
         self._file_cover_probe_generation = 0
     # ------------------------------------------------------------------
     # TabFeature API
@@ -302,20 +300,33 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
             changed = True
         return changed
 
-    def _ensure_cover_cached(self, track: Track) -> None:
-        cover_key = str(track.id)
-        if cover_key not in self._cover_cache:
-            self._cover_cache[cover_key] = lookup_track_cover_image(
-                title=track.name or "",
-                artist=track.artist or "",
-                album=track.album or "",
+    def _embed_online_cover(self, track: Track) -> str:
+        """Look up a cover online and embed it straight into the local audio file.
+
+        Returns "embedded", "not_found" or "failed".
+        """
+        cover = lookup_track_cover_image(
+            title=track.name or "",
+            artist=track.artist or "",
+            album=track.album or "",
+        )
+        if cover is None:
+            return "not_found"
+        if embed_cover_art(track.file_path, cover.data) and has_embedded_cover(
+            track.file_path
+        ):
+            track.has_file_cover = True
+            logger.info(
+                "Cover from %s embedded into %s", cover.source, track.file_path
             )
-        # Staged: written to the audio file and Rekordbox on Validate.
-        track.cover_pending = self._cover_cache[cover_key] is not None
+            return "embedded"
+        logger.error("Could not embed cover into %s", track.file_path)
+        return "failed"
 
     def _complete_tracks_info_worker(self, target_tracks: List[Track]) -> None:
         changed_tracks = 0
         failed_tracks = 0
+        cover_results: dict = {"embedded": 0, "not_found": 0, "failed": 0}
         unexpected_error = ""
 
         try:
@@ -342,13 +353,14 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                         )
                         track.has_file_cover = False
 
-                if track.has_file_cover:
-                    continue  # Audio file already has an embedded cover.
+                if track.has_file_cover or not track.file_path:
+                    continue  # Already has a cover, or no local file to write to.
 
                 try:
-                    self._ensure_cover_cached(track)
+                    cover_results[self._embed_online_cover(track)] += 1
                 except Exception:
-                    logger.exception("Cover lookup failed for track_id=%s", track.id)
+                    cover_results["failed"] += 1
+                    logger.exception("Cover completion failed for track_id=%s", track.id)
         except Exception as exc:
             logger.exception("Unexpected error during tracks metadata completion")
             unexpected_error = str(exc)
@@ -359,6 +371,7 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                 lambda: self._complete_tracks_info_finished(
                     changed_tracks=changed_tracks,
                     failed_tracks=failed_tracks,
+                    cover_results=cover_results,
                     unexpected_error=unexpected_error,
                 ),
             )
@@ -368,20 +381,31 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
         *,
         changed_tracks: int,
         failed_tracks: int,
+        cover_results: dict,
         unexpected_error: str,
     ) -> None:
         self.tracks_list.set_tracks(self.tracks_list.get_tracks())
 
         if unexpected_error:
-            self.status_var.set(
+            status = (
                 f"Metadata completion failed: {unexpected_error}. See logs for details."
             )
         elif failed_tracks:
-            self.status_var.set(
+            status = (
                 f"Completed metadata for {changed_tracks} track(s). Failed for {failed_tracks} track(s), see logs."
             )
         else:
-            self.status_var.set(f"Completed metadata for {changed_tracks} track(s).")
+            status = f"Completed metadata for {changed_tracks} track(s)."
+
+        if any(cover_results.values()):
+            status += (
+                f" Covers embedded in audio files: {cover_results['embedded']},"
+                f" not found online: {cover_results['not_found']}"
+            )
+            if cover_results["failed"]:
+                status += f", failed: {cover_results['failed']} (see logs)"
+            status += "."
+        self.status_var.set(status)
 
         self._set_tracks_completion_running(False)
 
@@ -425,24 +449,15 @@ class TracksInfoCompleterFeature(ConfigSubtabFeature):
                 )
                 self._edited_values[track_id] = dict(current_values)
 
-        covers = {
-            str(track.id): self._cover_cache[str(track.id)].data
-            for track in all_tracks
-            if self._cover_cache.get(str(track.id)) is not None
-            and str(track.id) not in self._covers_applied
-        }
-
-        if not updates and not covers:
+        if not updates:
             self.status_var.set("No modified tracks to save.")
             return
 
-        covers_embedded = update_track_rekordbox_metadata(
+        update_track_rekordbox_metadata(
             all_tracks,
             updates,
             set_status_callback=self.status_var.set,
-            covers=covers,
         )
-        self._covers_applied.update(covers_embedded)
 
         # Mark the submitted rows as clean so a follow-up Validate does not
         # re-send the same values if the view refreshes before the database reloads.

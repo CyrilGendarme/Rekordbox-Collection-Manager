@@ -2,6 +2,7 @@ from .audio_metadata_service import (
 	CompletedMetadata,
 	CoverImage,
 	complete_track_metadata,
+	embed_cover_art,
 	has_embedded_cover,
 	lookup_track_cover_image,
 	write_audio_metadata,
@@ -12,6 +13,7 @@ __all__ = [
 	"CompletedMetadata",
 	"CoverImage",
 	"complete_track_metadata",
+	"embed_cover_art",
 	"has_embedded_cover",
 	"lookup_track_cover_image",
 ]

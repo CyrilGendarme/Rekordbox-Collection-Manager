@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-USER = "cyril"
+USER = "User"
 
 
 class Settings(BaseSettings):
@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     LAYOUT_2_DECKS_HORIZONTAL: str = ")"
     REKORDBOX_EXE_PATH: str = r"C:\Program Files\rekordbox\rekordbox 7.2.19\rekordbox.exe"
     REKORDBOX_COLLECTION_TRACKS_XML_FILE_PATH: str = rf"C:\Users\{USER}\Professional DJ team Dropbox\Cyril Gendarme\rekordbox\xml\rekordbox.xml"
+    # Local Dropbox folder holding Rekordbox's synced "/contents_<id>/..." audio files.
+    REKORDBOX_DROPBOX_DIR: str = rf"C:\Users\{USER}\Professional DJ team Dropbox\Cyril Gendarme\rekordbox"
 
     # Value retrieve from .env file
     DISCOGS_TOKEN: str = ""

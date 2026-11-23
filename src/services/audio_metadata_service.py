@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from src.services.musicbrainz_service import lookup_musicbrainz_album
+from src.services.official_cover_service import official_cover_candidates
 from src.services.bandcamp_service import first_result_from_bandcamp_search
 from src.services.discogs_service import (
     lookup_discogs_cover_url,
@@ -14,6 +15,10 @@ from src.services.discogs_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ID3 v2.3 is read by every player, Windows Explorer and Rekordbox/CDJs;
+# v2.4 (mutagen's default) is not, so all ID3 writes use v2.3.
+ID3_SAVE_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -55,15 +60,37 @@ def _download_image(url: str) -> bytes:
         return b""
 
 
+def _is_image(data: bytes) -> bool:
+    import io
+
+    from PIL import Image
+
+    try:
+        Image.open(io.BytesIO(data)).verify()
+        return True
+    except Exception:
+        return False
+
+
 def lookup_track_cover_image(
     title: str, artist: str, album: str = ""
 ) -> CoverImage | None:
-    """Find a cover image, trying Bandcamp first and Discogs second."""
+    """Find a cover image: official artwork first, then Bandcamp, then Discogs."""
     normalized_title = (title or "").strip()
     normalized_artist = (artist or "").strip()
     normalized_album = (album or "").strip()
     if not normalized_title or not normalized_artist:
         return None
+
+    try:
+        for url, source in official_cover_candidates(
+            normalized_title, normalized_artist, normalized_album
+        ):
+            data = _download_image(url)
+            if data and _is_image(data):
+                return CoverImage(data, source)
+    except Exception:
+        logger.exception("Official cover lookup failed")
 
     try:
         bandcamp_data = first_result_from_bandcamp_search(
@@ -139,7 +166,7 @@ def write_metadata_to_mp3(
         id3_tags["genre"] = genre
     if track_tags:
         id3_tags["grouping"] = ", ".join(track_tags)
-    id3_tags.save(file_path)
+    id3_tags.save(file_path, v2_version=ID3_SAVE_VERSION)
 
 
 @lru_cache(maxsize=256)
@@ -307,7 +334,7 @@ def write_audio_metadata(
                     text=[record_ref],
                 )
 
-            audio_file.save()
+            audio_file.save(v2_version=ID3_SAVE_VERSION)
             return True
 
         if suffix == ".flac":
@@ -442,7 +469,7 @@ def copy_mp3_metadata(source_path: str, target_path: str) -> bool:
         for frame in source_id3.values():
             target_id3.add(frame)
 
-        target_id3.save(target_path, v2_version=3)
+        target_id3.save(target_path, v2_version=ID3_SAVE_VERSION)
         logger.info("Copied MP3 metadata: %s -> %s", source_path, target_path)
         return True
     except Exception:
@@ -527,7 +554,7 @@ def embed_cover_art(
             audio.tags.add(
                 APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=jpeg)
             )
-            audio.save()
+            audio.save(v2_version=ID3_SAVE_VERSION)
             return True
 
         if suffix in {".flac", ".ogg"}:

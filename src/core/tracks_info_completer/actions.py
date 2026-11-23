@@ -4,11 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.data import RekordboxDAO
-from src.services.audio_metadata_service import (
-    embed_cover_art,
-    has_embedded_cover,
-    write_audio_metadata,
-)
+from src.services.audio_metadata_service import write_audio_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -53,53 +49,17 @@ def update_track_rekordbox_metadata(
     tracks: list,
     updates: list,
     set_status_callback: Optional[callable] = None,
-    covers: Optional[dict] = None,
-) -> set[str]:
+) -> None:
     """Push edited metadata to Rekordbox and write tags to local audio files.
 
-    `covers` maps track id -> image bytes. Covers are embedded in audio files
-    independently of Rekordbox, and added to Rekordbox where it has no artwork.
-    Returns the IDs whose audio files have an embedded cover after processing.
+    Covers are not handled here: Complete Tracks Info embeds them directly
+    into the local audio files.
     """
     track_by_id = {str(t.id): t for t in tracks}
-    covers = covers or {}
-    audio_cover_ids: set[str] = set()
-    audio_cover_failures: list[str] = []
-
-    for track_id, image_bytes in covers.items():
-        track = track_by_id.get(str(track_id))
-        if track is None or not image_bytes:
-            audio_cover_failures.append(str(track_id))
-            continue
-
-        if not track.file_path or not Path(track.file_path).is_file():
-            logger.warning(
-                "Cannot embed cover for track_id=%s: audio file is missing: %s",
-                track_id,
-                track.file_path,
-            )
-            audio_cover_failures.append(str(track_id))
-            continue
-
-        if has_embedded_cover(track.file_path):
-            audio_cover_ids.add(str(track_id))
-        elif embed_cover_art(track.file_path, image_bytes) and has_embedded_cover(
-            track.file_path
-        ):
-            audio_cover_ids.add(str(track_id))
-        else:
-            logger.error(
-                "Could not verify embedded cover for track_id=%s at %s",
-                track_id,
-                track.file_path,
-            )
-            audio_cover_failures.append(str(track_id))
 
     failed = []
     tag_failures = []
     updated = 0
-    rekordbox_cover_count = 0
-    rekordbox_cover_failures = 0
     dao_error = ""
     try:
         with RekordboxDAO() as dao:
@@ -133,15 +93,6 @@ def update_track_rekordbox_metadata(
                     )
                     if not ok:
                         tag_failures.append(track_id)
-
-            for track_id, image_bytes in covers.items():
-                track = track_by_id.get(str(track_id))
-                if track is None or not image_bytes or track.image_path:
-                    continue
-                if dao.set_track_artwork(track_id, image_bytes):
-                    rekordbox_cover_count += 1
-                else:
-                    rekordbox_cover_failures += 1
     except Exception as exc:
         logger.exception("Failed to update Rekordbox during batch validate")
         dao_error = str(exc)
@@ -166,18 +117,4 @@ def update_track_rekordbox_metadata(
         else:
             status = f"{updated} track(s) updated successfully."
 
-        if covers:
-            status += (
-                f" Audio covers embedded: {len(audio_cover_ids)}/{len(covers)}."
-            )
-            if audio_cover_failures:
-                status += f" Audio cover failures: {len(audio_cover_failures)}."
-            if rekordbox_cover_count or rekordbox_cover_failures:
-                status += f" Rekordbox artwork updated: {rekordbox_cover_count}."
-                if rekordbox_cover_failures:
-                    status += (
-                        f" Rekordbox artwork failures: {rekordbox_cover_failures}."
-                    )
         set_status_callback(status)
-
-    return audio_cover_ids

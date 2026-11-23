@@ -17,9 +17,13 @@ def _build_common_options(
     if include_profile:
         options.add_argument(f"--user-data-dir={chrome_profile_dir}")
     options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation", "enable-logging"]
+    )
     options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("--lang=en-US")
+    # Keep Chrome's internal errors (GPU, updater pipe...) out of the app console.
+    options.add_argument("--log-level=3")
     return options
 
 

@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 from pyrekordbox.db6.database import DjmdContent
 
-from src.user_config import USER
+from pathlib import Path
+
+from src.user_config import USER, settings
 
 @dataclass
 class Track:
@@ -28,7 +30,6 @@ class Track:
     date_added: Optional[str] = None
     image_path: Optional[str] = None  # Rekordbox artwork path, informational only
     has_file_cover: Optional[bool] = None  # Embedded cover in the audio file itself
-    cover_pending: bool = False  # Cover found online, not yet written
     def __post_init__(self):
         """Ensure tags and position_marks are always lists."""
         if self.tags is None:
@@ -40,7 +41,7 @@ class Track:
 
     @property
     def has_cover(self) -> bool:
-        return bool(self.has_file_cover) or self.cover_pending
+        return bool(self.has_file_cover)
 
     @property
     def display_name(self) -> str:
@@ -49,6 +50,14 @@ class Track:
 
     @staticmethod
     def _resolve_file_path(row: DjmdContent) -> Optional[str]:
+        # Synced tracks live in the local Dropbox folder: Rekordbox stores them
+        # as "/contents_<id>/<artist>/<album>/<file>" relative to it.
+        folder_path = str(getattr(row, "FolderPath", None) or "").replace("\\", "/")
+        if folder_path.startswith("/contents_"):
+            dropbox_file = Path(settings.REKORDBOX_DROPBOX_DIR) / folder_path.lstrip("/")
+            if dropbox_file.is_file():
+                return str(dropbox_file)
+
         candidates = [
             getattr(row, "OrgFolderPath", None),
             getattr(row, "FolderPath", None),

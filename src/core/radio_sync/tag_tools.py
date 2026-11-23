@@ -109,7 +109,13 @@ def update_tags(path, source_tags, dry_run=False):
         changed.append(key)
 
     if changed and not dry_run:
-        audio.save()
+        from mutagen.easyid3 import EasyID3
+        from mutagen.id3 import ID3
+
+        if isinstance(audio.tags, (EasyID3, ID3)):
+            audio.save(v2_version=3)  # ID3 v2.3: readable everywhere, incl. Explorer
+        else:
+            audio.save()
     return changed
 
 
