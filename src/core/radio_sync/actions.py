@@ -7,10 +7,12 @@ Only files missing on the VPS are transferred, to save bandwidth. Uploads go
 to a temporary name and are renamed once complete, so a file present on the
 VPS is always a full copy.
 
-Files already on the VPS get their metadata updated from the local copy:
+Files already on the VPS get their metadata and embedded cover updated from the
+local copy:
 non-empty local tag values overwrite differing remote values (only the tag
-text travels, not the audio). Remote files no longer present locally are
-removed.
+text travels, not the audio), and a local cover that differs from the remote
+one replaces it (only the image travels). Remote files no longer present
+locally are removed.
 This step needs `python3` with `mutagen` on the VPS
 (e.g. `sudo apt install python3-mutagen`); without it, pushing still works.
 
@@ -25,6 +27,8 @@ CLI usage (values default to the RADIO_* settings from .env):
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import logging
 import posixpath
@@ -48,6 +52,7 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[str], None]
 
 PARTIAL_SUFFIX = ".radiosync-part"
+COVER_BATCH_MAX_BYTES = 20_000_000
 KNOWN_HOSTS_PATH = Path.home() / ".rekordbox_collection_manager_known_hosts"
 
 
@@ -92,6 +97,9 @@ class SyncResult:
     # relative path -> tag keys changed (or that would be changed on a dry run)
     metadata_updated: dict[str, list[str]] = field(default_factory=dict)
     metadata_failed: list[tuple[str, str]] = field(default_factory=list)
+    # relative paths whose embedded cover was (or would be) replaced
+    covers_updated: list[str] = field(default_factory=list)
+    cover_failed: list[tuple[str, str]] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     remove_failed: list[tuple[str, str]] = field(default_factory=list)
 
@@ -242,16 +250,8 @@ def _sftp_upload(target: VpsTarget, local_path: Path, remote_path: str) -> None:
                 raise
 
 
-def update_remote_metadata(
-    target: VpsTarget,
-    files: dict[str, dict[str, list[str]]],
-    dry_run: bool = False,
-) -> dict:
-    """Update tags on VPS copies from local tags, in one ssh call.
-
-    `files` maps remote paths to local tags. Returns the remote script's result:
-    {"updated": {path: [keys]}, "errors": {path: message}}.
-    """
+def _run_remote_script(target: VpsTarget, payload: dict) -> dict:
+    """Run tag_tools on the VPS with `payload` as JSON on stdin; return its JSON result."""
     script = (
         Path(tag_tools.__file__).read_text(encoding="utf-8")
         + "\ntry:\n    import mutagen\nexcept ImportError:\n"
@@ -262,12 +262,86 @@ def update_remote_metadata(
     output = _run_ssh_with_retry(
         target,
         f"python3 -c {shlex.quote(script)}",
-        stdin=json.dumps({"dry_run": dry_run, "files": files}),
+        stdin=json.dumps(payload),
     )
     result = json.loads(output)
     if "fatal" in result:
         raise RuntimeError(result["fatal"])
     return result
+
+
+def update_remote_metadata(
+    target: VpsTarget,
+    files: dict[str, dict[str, list[str]]],
+    dry_run: bool = False,
+) -> dict:
+    """Update tags on VPS copies from local tags, in one ssh call.
+
+    `files` maps remote paths to local tags. Returns the remote script's result:
+    {"updated": {path: [keys]}, "errors": {path: message}}.
+    """
+    return _run_remote_script(target, {"dry_run": dry_run, "files": files})
+
+
+def update_remote_covers(
+    target: VpsTarget,
+    files: dict[str, Path],
+    dry_run: bool = False,
+) -> tuple[list[str], dict[str, str]]:
+    """Replace embedded covers on VPS copies whose cover differs from the local one.
+
+    `files` maps remote paths to local files. Files without a local cover are
+    left alone. Only covers that differ are uploaded. Returns
+    (remote paths updated or to update, {remote path: error}).
+    """
+    errors: dict[str, str] = {}
+    local_covers: dict[str, tuple[str, bytes]] = {}
+    for remote_path, local_path in files.items():
+        try:
+            cover = tag_tools.read_cover(local_path)
+        except Exception as exc:
+            errors[remote_path] = str(exc)
+            continue
+        if cover:
+            local_covers[remote_path] = cover
+    if not local_covers:
+        return [], errors
+
+    remote = _run_remote_script(
+        target, {"action": "cover_hashes", "paths": list(local_covers)}
+    )
+    errors.update(remote.get("errors", {}))
+    remote_hashes = remote.get("hashes", {})
+    changed = {
+        remote_path: cover
+        for remote_path, cover in local_covers.items()
+        if remote_path in remote_hashes
+        and remote_hashes[remote_path] != hashlib.sha1(cover[1]).hexdigest()
+    }
+    if dry_run or not changed:
+        return list(changed), errors
+
+    updated: list[str] = []
+    batch: dict[str, dict[str, str]] = {}
+    batch_size = 0
+
+    def flush() -> None:
+        nonlocal batch, batch_size
+        if not batch:
+            return
+        response = _run_remote_script(target, {"action": "set_covers", "covers": batch})
+        updated.extend(response.get("updated", []))
+        errors.update(response.get("errors", {}))
+        batch, batch_size = {}, 0
+
+    for remote_path, (mime, data) in changed.items():
+        encoded = base64.b64encode(data).decode("ascii")
+        if batch and batch_size + len(encoded) > COVER_BATCH_MAX_BYTES:
+            flush()
+        batch[remote_path] = {"mime": mime, "data": encoded}
+        batch_size += len(encoded)
+    flush()
+    return updated, errors
 
 
 def sync_to_vps(
@@ -294,10 +368,12 @@ def sync_to_vps(
 
     to_push: list[tuple[Path, str]] = []
     already_remote: dict[str, dict[str, list[str]]] = {}
+    remote_local_paths: dict[str, Path] = {}
     for local_path, tags in matching:
         relative = local_path.relative_to(local_dir).as_posix()
         if relative in remote_files:
             result.skipped += 1
+            remote_local_paths[relative] = local_path
             if tags:
                 already_remote[relative] = tags
         else:
@@ -316,6 +392,8 @@ def sync_to_vps(
 
     if sync_metadata and already_remote:
         _sync_metadata(target, already_remote, dry_run, result, report)
+    if sync_metadata and remote_local_paths:
+        _sync_covers(target, remote_local_paths, dry_run, result, report)
 
     if dry_run:
         result.pushed = [relative for _, relative in to_push]
@@ -415,6 +493,38 @@ def _sync_metadata(
     report(f"Metadata: {len(result.metadata_updated)} remote file(s) {verb}.")
 
 
+def _sync_covers(
+    target: VpsTarget,
+    remote_local_paths: dict[str, Path],
+    dry_run: bool,
+    result: SyncResult,
+    report: ProgressCallback,
+) -> None:
+    report(f"Comparing covers of {len(remote_local_paths)} file(s) already on VPS ...")
+    by_remote_path = {
+        posixpath.join(target.remote_dir, relative): relative for relative in remote_local_paths
+    }
+    try:
+        updated, errors = update_remote_covers(
+            target,
+            {remote: remote_local_paths[relative] for remote, relative in by_remote_path.items()},
+            dry_run=dry_run,
+        )
+    except Exception as exc:
+        report(f"Cover sync skipped: {exc}")
+        result.cover_failed.append(("*", str(exc)))
+        return
+
+    verb = "would update" if dry_run else "updated"
+    for remote_path in updated:
+        relative = by_remote_path[remote_path]
+        result.covers_updated.append(relative)
+        report(f"{verb} cover of {relative}")
+    for remote_path, error in errors.items():
+        result.cover_failed.append((by_remote_path.get(remote_path, remote_path), error))
+    report(f"Covers: {len(result.covers_updated)} remote file(s) {verb}.")
+
+
 def target_from_settings(password: str) -> VpsTarget:
     return VpsTarget(
         host=settings.RADIO_VPS_HOST,
@@ -465,6 +575,8 @@ def main() -> None:
         print(f"FAILED: {relative}: {error}")
     for relative, error in result.metadata_failed:
         print(f"METADATA FAILED: {relative}: {error}")
+    for relative, error in result.cover_failed:
+        print(f"COVER FAILED: {relative}: {error}")
     for relative in result.removed:
         if args.dry_run:
             print(f"would remove: {relative}")
